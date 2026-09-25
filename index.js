@@ -1,4 +1,5 @@
 // pocket-phone/index.js
+// ★ [2.58.0] ท่อน 13 (ppDt* ppBk*) — แอพหาคู่เจนโปรไฟล์ครั้งเดียว · ธนาคารในกระเป๋าเงิน: สลิป บิล เงินเดือน ผ่อน · bill/payday
 // ★ [2.57.0] ท่อน 12 "หน้าตาและลูกเล่น" (ppLk*) — zoom/live activity/depth/lock font/era labels/WebAudio tones · ตั้งค่า > หน้าล็อกและลูกเล่น
 // ★ [2.56.0] ท่อน 11 "โลกในเรื่อง" (ppWd*) — time_skip/weather/rumor · cfg.world · wdStoryTime/wdOffscene/wdWeatherFx
 // ★ [2.55.0] ท่อน 10 "โทรสมจริง" (ppCl*) — video/[FACE]/group_call/call_drop/สายซ้อน
@@ -29,7 +30,7 @@
 // getContext ล้วน · ไม่มี import/export · lazy + try/catch
 // ⚠️ รันเดี่ยวไม่ได้ ต้องแปะครบ 4 ท่อน
 
-const PP_VERSION = '2.57.0';
+const PP_VERSION = '2.58.0';
 const MODULE_NAME = 'pocket-phone';
 
 // ══════════════════════════════════════════════════════════
@@ -1145,6 +1146,7 @@ function cname(cid) { const c = findContact(cid); return c ? dname(c) : (cid || 
 // contact นี้อยู่ใน scope ของคาร์ที่เปิดอยู่ไหม
 function ppContactInScope(c) {
  if (!c) return false;
+ if (c.dating) return true; // ★ [2.58.0] คู่แมตช์เป็นของผู้ใช้ ไม่ผูกกับตัวละครไหน
  // ★ [2.49.0] แชทกลุ่ม: นับสมาชิกทุกคนเป็น "ตัวละครหลัก" ไม่ใช่แค่คนที่พูดล่าสุด
  const scopes = ppMainCharIds();
  if (!scopes.length) return true; // ไม่เปิดคาร์ไหน → แสดงทั้งหมด (เหมือนเดิม)
@@ -1362,6 +1364,7 @@ function ppLog(kind, text, sub) {
  const cfg = getCfg();
  if (!cfg.logToStory) return;
  if (!text) return;
+ if (ppDtHideLog(text)) return; // ★ [2.58.0] แชทแอพหาคู่เป็นความลับ ถ้าไม่ได้เปิดให้บทหลักรู้
  cfg.actionLog.push({
  id: newId(),
  kind: kind || 'misc',
@@ -2851,7 +2854,7 @@ function ppBuildContactBlock() {
  if (mode === 'off') return '';
  // ★ 2.9.12 กรองตามขอบเขตตัวละครที่เปิดอยู่ เดิมส่งคอนแทกต์ทุกคนจากทุกโลกเข้าไปหมด
  // นั่นคือสาเหตุที่สลับไปเล่นอีกบอทแล้วมันรู้เรื่องของบอทตัวก่อน และ NPC ที่ไม่เคยเอ่ยถึงโผล่มาเอง
- const inScope = c => !ppScopeActive() || ppContactInScope(c);
+ const inScope = c => (!c.dating || cfg.dtRpAware) && (!ppScopeActive() || ppContactInScope(c)); // ★ [2.58.0] คู่แมตช์ไม่เข้าบทหลักถ้าไม่ได้เปิด
  const list = (mode === 'all'
   ? getContacts().filter(c => !isBlocked(c.id))
   : ppRelevantContacts(cfg.contactSendLimit || 12)).filter(inScope);
@@ -2972,6 +2975,7 @@ function ppBuildBridgeParts(actionBody, hay) {
    `  wallet_request — they ask the user for money. {"type":"wallet_request","from":"Name","amount":300,"reason":"why"}`,
   ];
   if (cfg.botCanSetWallet) w.push(`  wallet_set — declare how much money the character currently has, when the story establishes it (payday, went broke, inheritance). {"type":"wallet_set","from":"Name","amount":85000,"reason":"why"}`);
+  w.push(...ppBkPromptLines()); // ★ [2.58.0]
   put('wallet', ppPromptText('wallet', w.join('\n')));
  }
 
@@ -3750,6 +3754,7 @@ function ppLogBot(kind, text, sub) {
  const cfg = getCfg();
  if (cfg.botLogEnabled === false) return;
  if (!text) return;
+ if (ppDtHideLog(text)) return; // ★ [2.58.0]
  const list = ppBotLog();
  list.push({
  id: newId(),
@@ -10328,6 +10333,7 @@ function buildPhone() {
  <button data-wtab="overview" class="on">ภาพรวม</button>
  <button data-wtab="transfer">โอน</button>
  <button data-wtab="history">ประวัติ</button>
+ <button data-wtab="bank">ธนาคาร</button>
  <button data-wtab="settings">ตั้งค่า</button>
  </div>
  <div class="pp-wallet-body" id="pp-wallet-body"></div>
@@ -20793,6 +20799,7 @@ function renderWallet() {
  if (ppWalletTab === 'overview') renderWalletOverview(body, cfg);
  else if (ppWalletTab === 'transfer') renderWalletTransfer(body, cfg);
  else if (ppWalletTab === 'history') renderWalletHistory(body, cfg);
+ else if (ppWalletTab === 'bank') ppBkRender(body, cfg); // ★ [2.58.0] ธนาคาร
  else renderWalletSettings(body, cfg);
 }
 function walletCardHTML(cfg) {
@@ -20859,7 +20866,7 @@ function renderWalletOverview(body, cfg) {
 }
 function walletRowHTML(h) {
  const inn = h.dir === 'in';
- return `<div class="pp-wrow">
+ return `<div class="pp-wrow" data-px="bk-slip" data-id="${esc(h.id || '')}">
  <span class="pp-wic ${inn ? 'in' : 'out'}">${inn ? ICON.arrowIn : ICON.arrowOut}</span>
  <div class="pp-wrow-meta">
  <div class="pp-wrow-name">${esc(h.name || (inn ? 'รับเข้า' : 'จ่ายออก'))}</div>
@@ -21044,6 +21051,23 @@ const PP_GUIDE_FAQ = [
    text: 'ใช้รูปเล็กลง หรือใช้ลิงก์แทนการดึงจากเครื่อง · รูปจากลิงก์ไม่กินพื้นที่และส่งต่อไปเครื่องคนอื่นได้ด้วย' },
 ];
 const PP_CHANGELOG = [
+ { v: '2.58.0', title: 'แอพหาคู่ ปัดใจ + ธนาคารรวมในกระเป๋าเงิน',
+   lines: [
+    'แอพหาคู่ ปัดใจ ใส่จำนวนคนที่อยากให้มีในแอพ (1-20) กับสเปกที่อยากเจอ แล้วกดเจนครั้งเดียว ได้โปรไฟล์ครบทุกคนจากการเรียกโมเดล 1 ครั้ง แต่ละคนมีอายุ งาน หน้าตา นิสัย สไตล์การพิมพ์ ความสนใจ คำถามโปรไฟล์ และความลับของตัวเอง',
+    'ปัดการ์ดด้วยนิ้วหรือกดปุ่ม ผ่าน ถูกใจ ถูกใจมาก บางคนถูกใจเราอยู่แล้ว บางคนเลือกมาก ถูกใจมากเพิ่มโอกาสแมตช์',
+    'แมตช์แล้วขึ้นหน้าแมตช์กันแล้ว กดส่งข้อความเข้าแชทได้เลย บางคนทักมาก่อน คุยกันแล้วเขาจะตอบตามโปรไฟล์ที่เจนไว้ตอนแรกจริง ๆ เริ่มแบบคนแปลกหน้าที่เพิ่งแมตช์กัน ไม่ใช่รักกันทันที ความลับค่อย ๆ หลุดออกมาเอง',
+    'เขียนโปรไฟล์หาคู่ของตัวเองได้ คนที่แมตช์ใหม่จะรู้จักเราจากตรงนั้น เลิกแมตช์ได้ เอาคนที่ปัดผ่านกลับมาปัดใหม่ได้ และล้างแล้วเจนใหม่ได้ แชทกับคนที่แมตช์ไว้ยังอยู่',
+    'ความลับเป็นค่าเริ่มต้น แชทในแอพหาคู่ไม่เข้าบันทึกกิจกรรมและรายชื่อที่ส่งให้บทหลัก เปิดสวิตช์ในแท็บฉันถ้าอยากให้คนในเรื่องรู้และหึงได้',
+    'ธนาคารรวมอยู่ในกระเป๋าเงิน แท็บใหม่ ธนาคาร สรุปยอดที่ต้องจ่ายเดือนนี้ วันเงินเดือนเข้า',
+    'เงินเดือน ตั้งจำนวนกับวันที่ เข้าเองทุกเดือนพร้อมแจ้งเตือน',
+    'บิลรายเดือน มีสถานะ อีกกี่วัน ครบกำหนดวันนี้ เลยกำหนด กดจ่ายได้ ตั้งตัดอัตโนมัติได้ บทหลักรู้เรื่องบิลที่ใกล้ครบหรือเลยกำหนด (ปิดได้)',
+    'ผ่อนชำระ มีแถบความคืบหน้า จ่ายรายงวด หรือตัดอัตโนมัติทุกเดือน',
+    'สลิป แตะรายการไหนก็ได้ในกระเป๋าเงินเพื่อดูสลิป มีเลขที่รายการ วันเวลา จาก ไปยัง และบันทึก',
+    'บทหลักส่งบิลและเงินเข้าได้เอง เช่น ค่าเช่า ค่าไฟ เงินเดือน โบนัส ค่าจ้างงาน',
+    'บิล เงินเดือน และผ่อน ใช้วันตามเวลาในเรื่องถ้าเปิดไว้',
+   ],
+   tip: 'แอพหาคู่อยู่หน้าหลัก ถัดจากส่งของ · บิลกับเงินเข้าจากบทหลักอยู่ในโมดูลกระเป๋าเงินของหน้าสะพานเชื่อม' },
+
  { v: '2.57.0', title: 'หน้าตาและลูกเล่น: เปิดแอพซูมจากไอคอน Live Activity วอลเปเปอร์มีมิติ แต่งหน้าล็อก ชื่อแอพตามยุค เสียงข้อความรายคน',
    lines: [
     'เปิดแอพซูมออกจากไอคอนที่แตะเหมือน iPhone ปิดได้',
@@ -26878,6 +26902,8 @@ function ppApplySyncEvent(rawEv) {
   return { ok: true, label: `สเตตัสของ ${dname(c)}` };
  }
 
+ const bkR = ppBkApplyEvent(type, ev); // ★ [2.58.0] บิล เงินเดือน
+ if (bkR) return bkR;
  const wdR = ppWdApplyEvent(type, ev); // ★ [2.56.0] ข้ามเวลา อากาศ ข่าวลือ
  if (wdR) return wdR;
  const clR = ppClApplyEvent(type, ev); // ★ [2.55.0] คอลกลุ่ม สายหลุด
@@ -30833,6 +30859,7 @@ function ppPxStateMsg(chat) {
   const eraLine = ppEraBotLine(); // ★ [2.51.0] มือถือในเรื่องเป็นยุคไหน
   if (eraLine) rows.push(eraLine);
   ppWdStateLines().forEach(l => rows.push(l)); // ★ [2.56.0] เวลา อากาศ ข่าวลือในเรื่อง
+  [ppDtStateLine(), ppBkStateLine()].filter(Boolean).forEach(l => rows.push(l)); // ★ [2.58.0]
   if (cfg.pxRpState !== false) {
    const lv = ppPxBattLevel();
    const b = ppPxBatt();
@@ -31743,7 +31770,8 @@ function ppPxScreensHTML() {
   scr('pxmailread', 'อีเมล', '', 'pxmail') +
   scr('pxphotos', 'รูปภาพ') +
   scr('pxmap', 'แผนที่') +
-  scr('pxshop', 'ส่งของ');
+  scr('pxshop', 'ส่งของ') +
+  scr('dating', 'ปัดใจ'); // ★ [2.58.0]
 }
 const PP_PX_RENDER = { pxcal: renderPxCal, pxmail: renderPxMail, pxmailread: renderPxMailRead, pxphotos: renderPxPhotos, pxmap: renderPxMap, pxshop: renderPxShop };
 function ppPxRenderScreen(screen) {
@@ -31758,6 +31786,8 @@ async function ppPxClick(e) {
  e.stopPropagation();
  if (a.startsWith('wd-') && ppWdClick(a, el)) return; // ★ [2.56.0]
  if (a.startsWith('lk-') && ppLkClick(a, el)) return; // ★ [2.57.0]
+ if (a.startsWith('dt-') && ppDtClick(a, el)) return; // ★ [2.58.0]
+ if (a.startsWith('bk-') && ppBkClick(a, el)) return;
  switch (a) {
   case 'charge-on': ppPxSetCharging(true); return;
   case 'ch-filter': return ppChToggleFilter(el.dataset.k);
@@ -31865,6 +31895,7 @@ function ppPxTick() {
  try { ppPxOrderTick(); } catch (e) { console.warn('[pocket-phone] px order', e); }
  try { ppPxCalTick(); } catch (e) { console.warn('[pocket-phone] px cal', e); }
  try { ppWdFlush(); ppWdApplyFx(); } catch (e) { console.warn('[pocket-phone] wd', e); } // ★ [2.56.0]
+ try { ppBkTick(); } catch (e) { console.warn('[pocket-phone] bank', e); } // ★ [2.58.0]
  try { ppPxHomeUpdate(null); } catch {}
 }
 function ppPxInit() {
@@ -31874,7 +31905,7 @@ function ppPxInit() {
  if (!document.getElementById('pp-px-css')) {
   const s = document.createElement('style');
   s.id = 'pp-px-css';
-  s.textContent = PP_PX_CSS + PP_BR_CSS + PP_CH_CSS + PP_FD_CSS + PP_CL_CSS + PP_WD_CSS + PP_LK_CSS;
+  s.textContent = PP_PX_CSS + PP_BR_CSS + PP_CH_CSS + PP_FD_CSS + PP_CL_CSS + PP_WD_CSS + PP_LK_CSS + PP_DT_CSS;
   document.head.appendChild(s);
  }
  f.addEventListener('click', ppPxClick, true);
@@ -34586,6 +34617,697 @@ const PP_LK_CSS = `
 .pp-lk-tonerow .pp-btn{padding:5px 10px;font-size:12px;}
 `;
 console.log(`[pocket-phone] ${PP_VERSION} ท่อน 12 พร้อม - หน้าตาและลูกเล่น`);
+
+// ══════════════════════════════════════════════════════════
+// pocket-phone/index.js — 2.58.0 — ท่อน 13 (แอพหาคู่ + ธนาคารในกระเป๋าเงิน)
+// ★ [2.58.0] ปัดใจ: เจนโปรไฟล์ครั้งเดียวตามจำนวนที่ใส่ ปัดซ้ายขวา แมตช์แล้วคุยแบบอิงโปรไฟล์ที่เจนไว้
+// ★ [2.58.0] ธนาคาร: สลิป บิลรายเดือน เงินเดือนเข้าอัตโนมัติ ผ่อนชำระ — รวมอยู่ในกระเป๋าเงิน
+// ══════════════════════════════════════════════════════════
+
+ICON.dating = ICON.dating || `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M9.5 19.6 3.2 13.3a4.3 4.3 0 0 1 6.1-6.1l.2.2.2-.2a4.3 4.3 0 0 1 6.1 6.1z" opacity=".55"/><path d="M15 21.5 9.2 15.7a3.9 3.9 0 0 1 5.5-5.5l.3.3.3-.3a3.9 3.9 0 0 1 5.5 5.5z"/></svg>`;
+ICON.bank = ICON.bank || `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2 2 7v2h20V7L12 2zm-7 9v7H3v2h18v-2h-2v-7h-2v7h-3v-7h-2v7H7v-7H5z"/></svg>`;
+APPS.splice(Math.max(0, APPS.findIndex(a => a.nav === 'settings')), 0, { nav: 'dating', label: 'หาคู่', glow: '#ff375f', icon: ICON.dating });
+Object.assign(DEFAULTS, { dtRpAware: false, bkRp: true });
+Object.assign(PP_PX_SWITCHES, { 'pp-dt-rp': 'dtRpAware', 'pp-bk-rp': 'bkRp' });
+if (typeof PP_LK_ERA_LABELS !== 'undefined') Object.assign(PP_LK_ERA_LABELS.fantasy, { dating: 'ด้ายแดง' });
+
+// ══ ปัดใจ ══
+const PP_DT_APP = 'ปัดใจ';
+function ppDt() {
+ const cfg = getCfg();
+ if (!cfg.dating || typeof cfg.dating !== 'object') cfg.dating = {};
+ const d = cfg.dating;
+ if (!Array.isArray(d.profiles)) d.profiles = [];
+ if (typeof d.prefs !== 'string') d.prefs = '';
+ if (typeof d.me !== 'string') d.me = '';
+ return d;
+}
+let ppDtTab = 'swipe';
+let ppDtBusy = false;
+function ppDtClean(v, n) { return stripEmoji(String(v == null ? '' : v)).replace(/\s+/g, ' ').trim().slice(0, n || 200); }
+/** แกะ JSON array จากคำตอบโมเดล ทนเครื่องหมายคำพูดแปลก ๆ และคอมมาเกิน */
+function ppDtParse(raw) {
+ const s = String(raw || '').replace(/[“”]/g, '"').replace(/```(?:json)?/gi, '');
+ const tryParse = t => { try { return JSON.parse(t); } catch { try { return JSON.parse(t.replace(/,\s*([\]}])/g, '$1')); } catch { return null; } } };
+ const a = s.indexOf('['), b = s.lastIndexOf(']');
+ let arr = a >= 0 && b > a ? tryParse(s.slice(a, b + 1)) : null;
+ if (arr && !Array.isArray(arr) && Array.isArray(arr.profiles)) arr = arr.profiles;
+ if (!Array.isArray(arr)) arr = (s.match(/\{[^{}]*\}/g) || []).map(tryParse).filter(Boolean);
+ return arr;
+}
+function ppDtNormalize(p, i) {
+ if (!p || typeof p !== 'object') return null;
+ const name = ppDtClean(p.name, 40);
+ if (!name) return null;
+ const age = Math.max(20, Math.min(80, parseInt(p.age, 10) || 25));
+ const arr = v => (Array.isArray(v) ? v : String(v || '').split(/[,،、]/)).map(x => ppDtClean(x, 30)).filter(Boolean).slice(0, 6);
+ const ch = parseFloat(p.choosy);
+ return {
+  id: 'dt' + newId(), name, age,
+  gender: ppDtClean(p.gender, 20), job: ppDtClean(p.job, 60),
+  distance: Math.max(1, Math.min(80, Math.round(parseFloat(p.distance) || (2 + (i * 7) % 18)))),
+  bio: ppDtClean(p.bio, 220), looks: ppDtClean(p.looks, 200), personality: ppDtClean(p.personality, 300),
+  interests: arr(p.interests), q: ppDtClean(p.prompt_q || p.question, 90), a: ppDtClean(p.prompt_a || p.answer, 200),
+  opener: ppDtClean(p.opener, 200), secret: ppDtClean(p.secret, 200),
+  likesYou: p.likes_you === true || /true|yes/i.test(String(p.likes_you || '')),
+  choosy: isFinite(ch) ? Math.max(0, Math.min(1, ch)) : .5,
+  hue: (ppWxSeedNum(name + i) % 360), status: 'new', cid: '',
+ };
+}
+function ppDtPrompt(n, prefs) {
+ const un = getUserDisplayName();
+ const era = (() => { try { const e = ppEra(); return e.id !== 'modern' && e.bot ? `The world: ${e.bot}` : ''; } catch { return ''; } })();
+ return [
+  `Create ${n} fictional dating-app profiles for "${PP_DT_APP}", a dating app on ${un}'s phone inside a roleplay.`,
+  prefs ? `${un}'s preferences (follow them): ${prefs}` : `No preferences given — mix genders, ages 21-38, and vibes.`,
+  era || null,
+  `Every profile is a DIFFERENT, specific adult (20+): vary age, job, background, humour, how they text, attachment style, quirks, green flags and red flags. No two alike, no generic filler.`,
+  `Write all text in Thai unless the preferences say another language. No emoji anywhere.`,
+  `Return ONLY a JSON array, nothing before or after. Each item exactly:`,
+  `{"name":"first name","age":27,"gender":"...","job":"...","distance":3,"bio":"1-2 short lines they wrote themselves","looks":"2-3 concrete physical details","personality":"traits plus how they text","interests":["3-5 short"],"prompt_q":"a profile question","prompt_a":"their answer in their voice","opener":"the first message they would send after matching","likes_you":true,"choosy":0.4,"secret":"one private thing not on the profile that may come out while chatting"}`,
+  `likes_you = whether they already swiped right on ${un}. choosy = 0 (likes almost everyone) to 1 (very picky).`,
+ ].filter(Boolean).join('\n');
+}
+async function ppDtGenerate(n, prefs) {
+ if (ppDtBusy) return;
+ const count = Math.max(1, Math.min(20, parseInt(n, 10) || 8));
+ const d = ppDt();
+ d.prefs = String(prefs || '').trim().slice(0, 400);
+ ppDtBusy = true;
+ ppDtRender();
+ islandStatus(`กำลังสร้างโปรไฟล์ ${count} คน…`);
+ try {
+  const raw = await genWithRetry(ppDtPrompt(count, d.prefs), 2);
+  const list = ppDtParse(raw).map(ppDtNormalize).filter(Boolean).slice(0, count);
+  if (!list.length) { ppToast('โมเดลตอบกลับมาอ่านไม่ออก ลองใหม่อีกครั้ง'); return; }
+  const seen = new Set(d.profiles.map(p => p.name));
+  list.forEach(p => { if (seen.has(p.name)) p.name += ' ' + String.fromCharCode(65 + (ppWxSeedNum(p.id) % 26)) + '.'; seen.add(p.name); });
+  d.profiles.push(...list);
+  d.generatedAt = Date.now();
+  d.count = (d.count || 0) + list.length;
+  saveCfg();
+  ppToast(`ได้โปรไฟล์ ${list.length} คน`);
+ } catch (e) {
+  ppToast('สร้างไม่สำเร็จ · ' + ppGenerationError(e));
+ } finally {
+  ppDtBusy = false;
+  islandCollapse();
+  ppDtRender();
+ }
+}
+function ppDtQueue() { return ppDt().profiles.filter(p => p.status === 'new'); }
+function ppDtMatches() { return ppDt().profiles.filter(p => p.status === 'matched'); }
+/** ถูกใจแล้วได้แมตช์ไหม — ใช้เลขสุ่มคงที่ต่อโปรไฟล์ กดซ้ำผลเดิม */
+function ppDtWillMatch(p, superLike) {
+ if (p.likesYou) return true;
+ const r = ppWxRand(ppWxSeedNum(p.id + 'm'));
+ const chance = (1 - p.choosy) * .65 + (superLike ? .3 : 0);
+ return r < chance;
+}
+function ppDtSwipe(id, dir) {
+ const p = ppDt().profiles.find(x => x.id === id);
+ if (!p || p.status !== 'new') return;
+ if (dir === 'pass') { p.status = 'passed'; saveCfg(); ppDtRender(); return; }
+ const sup = dir === 'super';
+ p.superLiked = sup;
+ if (ppDtWillMatch(p, sup)) { ppDtMatch(p); return; }
+ p.status = 'liked';
+ saveCfg();
+ ppDtRender();
+}
+function ppDtNpcDesc(p) {
+ const un = getUserDisplayName();
+ const me = ppDt().me;
+ return [
+  `[Match from the dating app "${PP_DT_APP}"] ${p.name}, ${p.age}${p.gender ? ', ' + p.gender : ''}${p.job ? ', ' + p.job : ''}.`,
+  p.looks ? `Looks: ${p.looks}.` : '',
+  p.personality ? `Personality and texting style: ${p.personality}.` : '',
+  p.interests.length ? `Interests: ${p.interests.join(', ')}.` : '',
+  p.bio ? `Their profile bio: "${p.bio}".` : '',
+  p.q && p.a ? `Profile question "${p.q}" — their answer: "${p.a}".` : '',
+  p.secret ? `Private, not on the profile (may come out slowly, only if it fits): ${p.secret}.` : '',
+  `They and ${un} are strangers who just matched on the app. They only know ${un}'s dating profile${me ? `: "${me}"` : ''}. Behave like early-stage online dating: curious, a little guarded, not instantly in love. Stay consistent with this profile.`,
+ ].filter(Boolean).join(' ');
+}
+function ppDtMatch(p) {
+ const cfg = getCfg();
+ p.status = 'matched';
+ p.matchedAt = Date.now();
+ let c = p.cid ? findContact(p.cid) : null;
+ if (!c) {
+  c = { id: 'npc:' + newId(), name: p.name, avatar: '', npc: true, customNpc: true, npcDesc: ppDtNpcDesc(p), dating: p.id };
+  cfg.contacts.push(c);
+  p.cid = c.id;
+ }
+ saveCfg();
+ if (cfg.dtRpAware) ppLog('phone', `แมตช์กับ ${p.name} (${p.age}) ในแอพหาคู่ ${PP_DT_APP}`);
+ // บางคนทักมาก่อน
+ const opensFirst = p.opener && ppWxRand(ppWxSeedNum(p.id + 'o')) < .55;
+ if (opensFirst) setTimeout(() => {
+  if (!findContact(c.id)) return;
+  pushThreadMsg(c.id, { from: 'them', text: p.opener });
+  bumpUnread(c.id, 1);
+  islandNotify(c, p.opener);
+ }, 2500 + Math.round(ppWxRand(ppWxSeedNum(p.id)) * 6000));
+ ppDtMatchOverlay(p, c);
+}
+function ppDtAvatar(p, size) {
+ return `<span class="pp-dt-av" style="width:${size}px;height:${size}px;font-size:${Math.round(size * .42)}px;background:linear-gradient(150deg,hsl(${p.hue} 70% 62%),hsl(${(p.hue + 40) % 360} 60% 40%))">${esc(p.name[0] || '?')}</span>`;
+}
+function ppDtMatchOverlay(p, c) {
+ document.getElementById('pp-dt-match')?.remove();
+ const f = document.getElementById('pp-frame');
+ if (!f) return;
+ const box = document.createElement('div');
+ box.id = 'pp-dt-match';
+ box.innerHTML = `<div class="pp-dt-match-in">
+  <div class="pp-dt-match-t">แมตช์กันแล้ว</div>
+  <div class="pp-dt-match-s">คุณกับ ${esc(p.name)} ถูกใจกันและกัน</div>
+  <div class="pp-dt-match-avs">${userAvatarHTML(92)}${ppDtAvatar(p, 92)}</div>
+  <button class="pp-btn primary" data-px="dt-chat" data-cid="${esc(c.id)}">ส่งข้อความ</button>
+  <button class="pp-btn" data-px="dt-match-close">ปัดต่อ</button>
+ </div>`;
+ f.appendChild(box);
+ ppDtRender();
+}
+function ppDtUnmatch(id) {
+ const p = ppDt().profiles.find(x => x.id === id);
+ if (!p) return;
+ ppConfirm(`เลิกแมตช์กับ ${p.name}`, 'แชทกับคนนี้จะถูกลบ และเขาจะหายไปจากแอพ', () => {
+  const cfg = getCfg();
+  if (p.cid) { cfg.contacts = cfg.contacts.filter(c => c.id !== p.cid); if (cfg.threads) delete cfg.threads[p.cid]; if (cfg.unread) delete cfg.unread[p.cid]; }
+  p.status = 'unmatched'; p.cid = '';
+  saveCfg();
+  if (cfg.dtRpAware) ppLog('phone', `เลิกแมตช์กับ ${p.name} ในแอพหาคู่`);
+  ppDtRender();
+ }, 'เลิกแมตช์');
+}
+function ppDtCardHTML(p) {
+ return `<div class="pp-dt-card" data-id="${esc(p.id)}">
+  <div class="pp-dt-photo" style="background:linear-gradient(160deg,hsl(${p.hue} 65% 58%),hsl(${(p.hue + 50) % 360} 55% 32%))">
+   <span class="pp-dt-initial">${esc(p.name[0] || '?')}</span>
+   ${p.looks ? `<span class="pp-dt-looks">${esc(p.looks)}</span>` : ''}
+   <div class="pp-dt-stamp like">ถูกใจ</div><div class="pp-dt-stamp nope">ผ่าน</div>
+   <div class="pp-dt-head"><b>${esc(p.name)}</b> <span>${p.age}</span>
+    <div class="pp-dt-sub">${esc(p.job || '')}${p.job ? ' · ' : ''}ห่าง ${p.distance} กม.</div></div>
+  </div>
+  <div class="pp-dt-info">
+   ${p.bio ? `<div class="pp-dt-bio">${esc(p.bio)}</div>` : ''}
+   ${p.interests.length ? `<div class="pp-dt-chips">${p.interests.map(x => `<span>${esc(x)}</span>`).join('')}</div>` : ''}
+   ${p.q && p.a ? `<div class="pp-dt-qa"><i>${esc(p.q)}</i><b>${esc(p.a)}</b></div>` : ''}
+  </div>
+ </div>`;
+}
+function ppDtSetupHTML() {
+ const d = ppDt();
+ return `<div class="pp-dt-setup">
+  <div class="pp-dt-logo">${ICON.dating}</div>
+  <div class="pp-hint">ใส่จำนวนคนที่อยากให้มีในแอพ ระบบจะเจนโปรไฟล์ทั้งหมดในครั้งเดียว แต่ละคนมีหน้าตา นิสัย สไตล์การพิมพ์ และความลับของตัวเอง แมตช์แล้วคุยกันตามโปรไฟล์นั้นจริง ๆ ไม่ซ้ำกัน</div>
+  <div class="pp-card">
+   <div class="pp-cell"><span class="pp-cell-lb">จำนวนคน (1-20)</span><input class="pp-num" type="number" id="pp-dt-n" min="1" max="20" value="8"></div>
+   <div class="pp-cell pp-cell-col"><div class="pp-cell-lb" style="margin-bottom:6px">สเปกที่อยากเจอ (ไม่บังคับ)</div>
+    <textarea class="pp-input-line" id="pp-dt-prefs" rows="3" placeholder="เช่น ผู้ชาย 25-32 ทำงานออฟฟิศ อบอุ่นแต่ปากแข็ง มีคนหนึ่งเป็นแฟนเก่าเพื่อนสนิท">${esc(d.prefs)}</textarea></div>
+  </div>
+  <button class="pp-btn primary pp-dt-gen" data-px="dt-gen"${ppDtBusy ? ' disabled' : ''}>${ppDtBusy ? 'กำลังสร้าง…' : 'เจนโปรไฟล์'}</button>
+  <div class="pp-hint">ใช้การเรียกโมเดล 1 ครั้ง จำนวนคนยิ่งเยอะยิ่งใช้โทเคนมาก</div>
+ </div>`;
+}
+function ppDtRender() {
+ const body = document.getElementById('pp-dating-body');
+ if (!body) return;
+ const d = ppDt();
+ const seg = `<div class="pp-seg pp-dt-seg">${[['swipe', 'ปัด'], ['matches', `แมตช์${ppDtMatches().length ? ' ' + ppDtMatches().length : ''}`], ['me', 'ฉัน']].map(([k, l]) => `<button class="${ppDtTab === k ? 'on' : ''}" data-px="dt-tab" data-t="${k}">${l}</button>`).join('')}</div>`;
+ if (!d.profiles.length) { body.innerHTML = ppDtSetupHTML(); return; }
+ if (ppDtTab === 'matches') {
+  const ms = ppDtMatches();
+  const liked = d.profiles.filter(p => p.status === 'liked').length;
+  body.innerHTML = seg + (ms.length ? `<div class="pp-dt-mrow">${ms.map(p => `<button class="pp-dt-mav" data-px="dt-chat" data-cid="${esc(p.cid)}">${ppDtAvatar(p, 62)}<span>${esc(p.name)}</span></button>`).join('')}</div>
+   <div class="pp-card">${ms.map(p => { const last = p.cid ? getThread(p.cid).slice(-1)[0] : null; return `<div class="pp-cell">
+    <span class="pp-cell-lb" data-px="dt-chat" data-cid="${esc(p.cid)}" style="gap:10px;cursor:pointer">${ppDtAvatar(p, 40)}<span style="display:flex;flex-direction:column;min-width:0"><b>${esc(p.name)}, ${p.age}</b><span style="font-size:12px;color:var(--pp-txt3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis">${esc(last ? msgPreview(last) : 'ยังไม่ได้คุย ทักก่อนเลย')}</span></span></span>
+    <button class="pp-btn" data-px="dt-unmatch" data-id="${esc(p.id)}" style="padding:5px 10px;font-size:12px">เลิกแมตช์</button></div>`; }).join('')}</div>`
+   : `<div class="pp-empty">${ICON.dating}<br>ยังไม่มีแมตช์</div>`)
+   + (liked ? `<div class="pp-hint">กดถูกใจไปแล้ว ${liked} คนที่ยังไม่ถูกใจกลับ</div>` : '');
+  return;
+ }
+ if (ppDtTab === 'me') {
+  const cnt = s => d.profiles.filter(p => p.status === s).length;
+  body.innerHTML = seg + `<div class="pp-card">
+   <div class="pp-cell" data-px="dt-me"><span class="pp-cell-lb" style="flex-direction:column;align-items:flex-start;gap:2px"><span>โปรไฟล์หาคู่ของฉัน</span><span style="font-size:11px;color:var(--pp-txt3);line-height:1.4">${esc(d.me || 'แตะเพื่อเขียน คนที่แมตช์จะรู้จักคุณจากตรงนี้')}</span></span><span class="pp-cell-val">${ICON.chevron}</span></div>
+   <div class="pp-cell"><span class="pp-cell-lb">ในแอพ ${d.profiles.length} คน · ถูกใจ ${cnt('liked') + cnt('matched')} · ผ่าน ${cnt('passed')} · แมตช์ ${cnt('matched')}</span></div>
+   <div class="pp-cell"><span class="pp-cell-lb" style="flex-direction:column;align-items:flex-start;gap:2px"><span>บทหลักรู้ว่าเล่นแอพหาคู่</span><span style="font-size:11px;color:var(--pp-txt3);line-height:1.4">ปิดไว้ = เป็นความลับในมือถือ เปิดแล้วคนในเรื่องอาจรู้และหึงได้</span></span><label class="pp-switch"><input type="checkbox" id="pp-dt-rp"${getCfg().dtRpAware ? ' checked' : ''}><span></span></label></div>
+  </div>
+  <div class="pp-card">
+   ${cnt('passed') ? `<div class="pp-cell"><button class="pp-btn" data-px="dt-recycle">เอาคนที่ปัดผ่านกลับมาให้ปัดใหม่</button></div>` : ''}
+   <div class="pp-cell"><button class="pp-btn danger" data-px="dt-reset">ล้างแล้วเจนใหม่ทั้งหมด</button></div>
+  </div>
+  <div class="pp-hint">ล้างแล้วเจนใหม่จะลบคนที่ยังไม่ได้แมตช์ แชทกับคนที่แมตช์แล้วยังอยู่</div>`;
+  return;
+ }
+ const q = ppDtQueue();
+ if (!q.length) {
+  body.innerHTML = seg + `<div class="pp-empty">${ICON.dating}<br>ปัดครบทุกคนแล้ว<br><span style="font-size:12px">ไปคุยกับคนที่แมตช์ หรือเอาคนที่ปัดผ่านกลับมาได้ที่แท็บฉัน</span></div>`;
+  return;
+ }
+ const top = q[0], next = q[1];
+ body.innerHTML = seg + `<div class="pp-dt-stack">${next ? `<div class="pp-dt-under">${ppDtCardHTML(next)}</div>` : ''}${ppDtCardHTML(top)}</div>
+  <div class="pp-dt-acts">
+   <button class="pp-dt-btn nope" data-px="dt-swipe" data-dir="pass" data-id="${esc(top.id)}" title="ผ่าน">${ICON.close}</button>
+   <button class="pp-dt-btn super" data-px="dt-swipe" data-dir="super" data-id="${esc(top.id)}" title="ถูกใจมาก">${ICON.star}</button>
+   <button class="pp-dt-btn like" data-px="dt-swipe" data-dir="like" data-id="${esc(top.id)}" title="ถูกใจ">${ICON.heart}</button>
+  </div>
+  <div class="pp-dt-left">เหลือ ${q.length} คน</div>`;
+ ppDtBindDrag(body.querySelector('.pp-dt-stack > .pp-dt-card'));
+}
+/** ปัดด้วยนิ้ว — ลากเกินระยะแล้วปล่อย = ถูกใจ/ผ่าน */
+function ppDtBindDrag(card) {
+ if (!card) return;
+ let x0 = 0, dx = 0, on = false;
+ card.addEventListener('pointerdown', e => { on = true; x0 = e.clientX; dx = 0; card.classList.add('drag'); });
+ card.addEventListener('pointermove', e => {
+  if (!on) return;
+  dx = e.clientX - x0;
+  if (Math.abs(dx) > 6) { try { card.setPointerCapture(e.pointerId); } catch {} }
+  card.style.transform = `translateX(${dx}px) rotate(${dx / 18}deg)`;
+  card.style.setProperty('--like', Math.max(0, Math.min(1, dx / 90)));
+  card.style.setProperty('--nope', Math.max(0, Math.min(1, -dx / 90)));
+ });
+ const end = () => {
+  if (!on) return;
+  on = false;
+  card.classList.remove('drag');
+  if (Math.abs(dx) > 90) {
+   card.style.transform = `translateX(${dx > 0 ? 420 : -420}px) rotate(${dx > 0 ? 24 : -24}deg)`;
+   card.style.opacity = '0';
+   const id = card.dataset.id, dir = dx > 0 ? 'like' : 'pass';
+   setTimeout(() => ppDtSwipe(id, dir), 220);
+  } else { card.style.transform = ''; card.style.setProperty('--like', 0); card.style.setProperty('--nope', 0); }
+ };
+ card.addEventListener('pointerup', end);
+ card.addEventListener('pointercancel', end);
+}
+function ppDtClick(a, el) {
+ const d = ppDt();
+ if (a === 'dt-tab') { ppDtTab = el.dataset.t; ppDtRender(); return true; }
+ if (a === 'dt-gen') {
+  const n = document.getElementById('pp-dt-n')?.value;
+  const prefs = document.getElementById('pp-dt-prefs')?.value || '';
+  ppDtGenerate(n, prefs);
+  return true;
+ }
+ if (a === 'dt-swipe') {
+  const card = document.querySelector('.pp-dt-stack > .pp-dt-card');
+  const dir = el.dataset.dir;
+  if (card) { card.style.transform = dir === 'pass' ? 'translateX(-420px) rotate(-24deg)' : dir === 'super' ? 'translateY(-520px)' : 'translateX(420px) rotate(24deg)'; card.style.opacity = '0'; }
+  setTimeout(() => ppDtSwipe(el.dataset.id, dir), card ? 200 : 0);
+  return true;
+ }
+ if (a === 'dt-chat') {
+  document.getElementById('pp-dt-match')?.remove();
+  const c = findContact(el.dataset.cid);
+  if (c) { ppActiveContact = c; ppActiveGroup = null; ppNav('chat'); }
+  return true;
+ }
+ if (a === 'dt-match-close') { document.getElementById('pp-dt-match')?.remove(); return true; }
+ if (a === 'dt-unmatch') { ppDtUnmatch(el.dataset.id); return true; }
+ if (a === 'dt-recycle') { d.profiles.forEach(p => { if (p.status === 'passed') p.status = 'new'; }); saveCfg(); ppDtTab = 'swipe'; ppDtRender(); return true; }
+ if (a === 'dt-reset') {
+  ppConfirm('ล้างแล้วเจนใหม่', 'คนที่ยังไม่ได้แมตช์จะหายไปทั้งหมด แล้วกลับไปหน้าใส่จำนวนคน', () => {
+   d.profiles = d.profiles.filter(p => p.status === 'matched');
+   if (!d.profiles.length) d.profiles = [];
+   d.resetAt = Date.now();
+   saveCfg();
+   ppDtTab = 'swipe';
+   // ยังมีคนที่แมตช์อยู่ = หน้าเจนไม่ขึ้นเอง เปิดให้ตรงนี้
+   if (d.profiles.length) ppDtAskMore(); else ppDtRender();
+  }, 'ล้าง');
+  return true;
+ }
+ if (a === 'dt-me') {
+  ppPrompt('โปรไฟล์หาคู่ของฉัน', d.me, v => { d.me = String(v || '').trim().slice(0, 300); saveCfg(); ppDtRender(); }, { rows: 3, hint: 'คนที่แมตช์ใหม่จะรู้จักคุณจากตรงนี้' });
+  return true;
+ }
+ return false;
+}
+function ppDtAskMore() {
+ ppPrompt('เจนกี่คน', '8', n => {
+  if (!n) return ppDtRender();
+  ppPrompt('สเปกที่อยากเจอ', ppDt().prefs, prefs => ppDtGenerate(n, prefs || ''), { rows: 3 });
+ }, { placeholder: '1-20' });
+}
+/** บันทึกนี้เกี่ยวกับแชทหาคู่ไหม — ไม่ได้เปิดให้บทหลักรู้ = ไม่บันทึก */
+function ppDtHideLog(text) {
+ try {
+  const cfg = getCfg();
+  if (cfg.dtRpAware || !Array.isArray(cfg.contacts)) return false;
+  const dts = cfg.contacts.filter(c => c && c.dating);
+  if (!dts.length) return false;
+  if (typeof ppActiveContact !== 'undefined' && ppActiveContact && ppActiveContact.dating && /^(chat|chatsettings|call|callend)$/.test(ppCurrentScreen)) return true;
+  const t = String(text || '');
+  return dts.some(c => c.name && c.name.length >= 2 && t.includes(c.name));
+ } catch { return false; }
+}
+function ppDtStateLine() {
+ if (!getCfg().dtRpAware) return '';
+ const ms = ppDtMatches();
+ if (!ms.length) return '';
+ return `${getUserDisplayName()} uses the dating app "${PP_DT_APP}" and has matched with: ${ms.slice(-5).map(p => `${p.name} (${p.age})`).join(', ')}.`;
+}
+
+// ══ ธนาคาร (อยู่ในกระเป๋าเงิน) ══
+Object.assign(PP_TYPE_ALIAS, {
+ bill: ['bill', 'invoice', 'bill_due', 'utility_bill', 'rent_due'],
+ payday: ['payday', 'salary', 'paycheck', 'wage', 'bonus'],
+});
+Object.assign(PP_TYPE_MOD, { bill: 'wallet', payday: 'wallet' });
+PP_MOD_TYPES.wallet = (PP_MOD_TYPES.wallet || []).concat(['bill', 'payday']);
+function ppBk() {
+ const cfg = getCfg();
+ if (!cfg.bank || typeof cfg.bank !== 'object') cfg.bank = {};
+ const b = cfg.bank;
+ if (!Array.isArray(b.bills)) b.bills = [];
+ if (!Array.isArray(b.plans)) b.plans = [];
+ return b;
+}
+function ppBkPromptLines() {
+ const un = getUserDisplayName();
+ return [
+  `  bill — a bill ${un} has to pay (rent, electricity, phone, tuition). {"type":"bill","name":"what","amount":4500,"day":5,"monthly":true} or one-off {"type":"bill","name":"what","amount":1200,"due":"YYYY-MM-DD"}`,
+  `  payday — money is paid INTO ${un}'s account by an employer or for work (salary, bonus, freelance fee). {"type":"payday","amount":25000,"from":"who pays","note":"what for"}`,
+ ];
+}
+function ppBkToday() { const d = ppWdDate(); d.setHours(0, 0, 0, 0); return d; }
+function ppBkMonth(d) { return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`; }
+function ppBkDueDate(b) {
+ if (b.due) { const d = new Date(b.due + 'T00:00:00'); return isNaN(d) ? null : d; }
+ const t = ppBkToday();
+ const d = new Date(t.getFullYear(), t.getMonth(), Math.min(28, Math.max(1, b.day || 1)));
+ return d;
+}
+function ppBkBillPaid(b) { return b.due ? !!b.paid : b.lastPaid === ppBkMonth(ppBkToday()); }
+function ppBkBillStatus(b) {
+ if (ppBkBillPaid(b)) return { k: 'paid', label: 'จ่ายแล้ว' };
+ const due = ppBkDueDate(b);
+ if (!due) return { k: 'later', label: '' };
+ const days = Math.round((due - ppBkToday()) / 86400000);
+ if (days < 0) return { k: 'over', label: `เลยกำหนด ${-days} วัน`, days };
+ if (days === 0) return { k: 'soon', label: 'ครบกำหนดวันนี้', days };
+ if (days <= 3) return { k: 'soon', label: `อีก ${days} วัน`, days };
+ return { k: 'later', label: `วันที่ ${due.getDate()}`, days };
+}
+function ppBkPayBill(id, auto) {
+ const bk = ppBk();
+ const b = bk.bills.find(x => x.id === id);
+ if (!b || ppBkBillPaid(b)) return false;
+ if (walletBalanceGet() < b.amount) { if (!auto) ppToast('ยอดเงินในกระเป๋าไม่พอ'); return false; }
+ adjustUserBalance(-b.amount);
+ pushWalletHistory('out', b.amount, null, b.name, auto ? 'ตัดบิลอัตโนมัติ' : 'จ่ายบิล');
+ if (b.due) b.paid = true; else b.lastPaid = ppBkMonth(ppBkToday());
+ saveCfg();
+ ppLog('wallet', `${auto ? 'ระบบตัดบิล' : 'จ่ายบิล'} ${b.name} ${fmtMoney(b.amount)}`, [`ยอดคงเหลือ ${fmtMoney(walletBalanceGet())}`]);
+ if (auto) ppPxNotify('ธนาคาร', `ตัดบิล ${b.name} ${fmtMoney(b.amount)}`);
+ else ppToast(`จ่าย ${b.name} แล้ว`);
+ try { updateHomeWidgets(); if (ppCurrentScreen === 'wallet') renderWallet(); } catch {}
+ return true;
+}
+function ppBkPlanDue(pl) { return pl.paidCount < pl.months && pl.lastPaid !== ppBkMonth(ppBkToday()); }
+function ppBkPlanMonthly(pl) { return Math.ceil(pl.total / Math.max(1, pl.months)); }
+function ppBkPayPlan(id, auto) {
+ const pl = ppBk().plans.find(x => x.id === id);
+ if (!pl || !ppBkPlanDue(pl)) return false;
+ const amt = Math.min(ppBkPlanMonthly(pl), pl.total - ppBkPlanMonthly(pl) * pl.paidCount || ppBkPlanMonthly(pl));
+ if (walletBalanceGet() < amt) { if (!auto) ppToast('ยอดเงินในกระเป๋าไม่พอ'); return false; }
+ adjustUserBalance(-amt);
+ pl.paidCount++;
+ pl.lastPaid = ppBkMonth(ppBkToday());
+ pushWalletHistory('out', amt, null, pl.name, `ผ่อนงวด ${pl.paidCount}/${pl.months}`);
+ saveCfg();
+ ppLog('wallet', `ผ่อน ${pl.name} งวด ${pl.paidCount}/${pl.months} ${fmtMoney(amt)}`);
+ if (auto) ppPxNotify('ธนาคาร', `ตัดผ่อน ${pl.name} งวด ${pl.paidCount}/${pl.months}`);
+ try { updateHomeWidgets(); if (ppCurrentScreen === 'wallet') renderWallet(); } catch {}
+ return true;
+}
+function ppBkCredit(amount, from, note) {
+ const n = Math.round(Math.abs(parseFloat(amount) || 0));
+ if (!n) return false;
+ adjustUserBalance(n);
+ pushWalletHistory('in', n, null, from || 'เงินเข้า', note || 'เงินเดือน');
+ ppLog('wallet', `เงินเข้าบัญชี ${fmtMoney(n)} จาก ${from || 'นายจ้าง'}${note ? ` (${note})` : ''}`, [`ยอดคงเหลือ ${fmtMoney(walletBalanceGet())}`]);
+ ppPxNotify('ธนาคาร', `เงินเข้า +${fmtMoney(n)}${from ? ' จาก ' + from : ''}`);
+ pushNotif('', 'msg', `เงินเข้า +${fmtMoney(n)}${from ? ' จาก ' + from : ''}`);
+ try { updateHomeWidgets(); if (ppCurrentScreen === 'wallet') renderWallet(); } catch {}
+ return true;
+}
+/** เงินเดือนเข้า บิลตัดอัตโนมัติ ผ่อนตัดอัตโนมัติ — เช็คทุก 20 วินาที */
+function ppBkTick() {
+ const bk = ppBk();
+ const t = ppBkToday();
+ const m = ppBkMonth(t);
+ const s = bk.salary;
+ if (s && s.amount > 0 && t.getDate() >= (s.day || 25) && s.lastPaid !== m) {
+  s.lastPaid = m;
+  ppBkCredit(s.amount, s.from || 'เงินเดือน', 'เงินเดือน');
+ }
+ bk.bills.forEach(b => { if (b.auto && !ppBkBillPaid(b)) { const st = ppBkBillStatus(b); if (st.k === 'over' || (st.k === 'soon' && st.days === 0)) ppBkPayBill(b.id, true); } });
+ bk.plans.forEach(pl => { if (pl.auto && ppBkPlanDue(pl) && t.getDate() >= (pl.day || 1)) ppBkPayPlan(pl.id, true); });
+}
+function ppBkApplyEvent(type, ev) {
+ if (type === 'bill') {
+  const name = ppDtClean(ev.name || ev.title || ev.item || ev.text, 60);
+  const amount = Math.round(Math.abs(parseFloat(ev.amount || ev.price || ev.total) || 0));
+  if (!name || !amount) return { ok: false, reason: 'บิลไม่มีชื่อหรือจำนวนเงิน' };
+  const bk = ppBk();
+  const monthly = ev.monthly === true || /true|yes|monthly/i.test(String(ev.monthly || ev.repeat || ''));
+  const due = ev.due || ev.date ? ppPxParseDate(ev.due || ev.date) : '';
+  const day = parseInt(ev.day, 10) || (due ? +String(due).slice(8, 10) : ppBkToday().getDate());
+  const ex = bk.bills.find(b => b.name === name);
+  if (ex) { ex.amount = amount; if (!monthly && due) { ex.due = due; ex.paid = false; } else ex.day = day; }
+  else bk.bills.push(monthly || !due ? { id: newId(), name, amount, day: Math.min(28, day), auto: false } : { id: newId(), name, amount, due, paid: false, auto: false });
+  saveCfg();
+  ppPxNotify('ธนาคาร', `บิลใหม่ ${name} ${fmtMoney(amount)}`);
+  return { ok: true, label: `บิล ${name}` };
+ }
+ if (type === 'payday') {
+  const from = ppDtClean(ev.from || ev.sender || ev.company || '', 60);
+  const ok = ppBkCredit(ev.amount || ev.total, from, ppDtClean(ev.note || ev.reason || 'เงินเดือน', 60));
+  return ok ? { ok: true, label: `เงินเข้า ${fmtMoney(Math.round(Math.abs(parseFloat(ev.amount || ev.total))))}` } : { ok: false, reason: 'ไม่มีจำนวนเงิน' };
+ }
+ return null;
+}
+function ppBkStateLine() {
+ if (getCfg().bkRp === false) return '';
+ const un = getUserDisplayName();
+ const due = ppBk().bills.map(b => ({ b, st: ppBkBillStatus(b) })).filter(x => x.st.k === 'over' || x.st.k === 'soon');
+ if (!due.length) return '';
+ return `${un}'s bills: ${due.map(x => `${x.b.name} ${fmtMoney(x.b.amount)} (${x.st.k === 'over' ? `overdue ${-x.st.days} days` : x.st.days === 0 ? 'due today' : `due in ${x.st.days} days`})`).join('; ')}.`;
+}
+function ppBkRender(body, cfg) {
+ const bk = ppBk();
+ const bills = bk.bills.map(b => ({ b, st: ppBkBillStatus(b) })).sort((x, y) => (x.st.days ?? 99) - (y.st.days ?? 99));
+ const unpaid = bills.filter(x => x.st.k !== 'paid').reduce((a, x) => a + x.b.amount, 0) + bk.plans.filter(ppBkPlanDue).reduce((a, p) => a + ppBkPlanMonthly(p), 0);
+ const s = bk.salary;
+ body.innerHTML = `${walletCardHTML(cfg)}
+  <div class="pp-bk-sum"><div><span>ต้องจ่ายเดือนนี้</span><b>${esc(fmtMoney(unpaid))}</b></div><div><span>เงินเดือนเข้า</span><b>${s && s.amount ? `วันที่ ${s.day}` : '—'}</b></div></div>
+  <div class="pp-sec-label">เงินเดือน</div>
+  <div class="pp-card"><div class="pp-cell" data-px="bk-salary"><span class="pp-cell-lb">${ICON.arrowIn} ${s && s.amount ? `${esc(fmtMoney(s.amount))} ทุกวันที่ ${s.day}${s.from ? ' · ' + esc(s.from) : ''}` : 'ตั้งเงินเดือน เข้าเองทุกเดือน'}</span><span class="pp-cell-val">${ICON.chevron}</span></div></div>
+  <div class="pp-sec-label">บิล <button class="pp-bk-add" data-px="bk-bill-add">${ICON.plus}</button></div>
+  ${bills.length ? `<div class="pp-card">${bills.map(({ b, st }) => `<div class="pp-cell pp-bk-row">
+   <span class="pp-cell-lb" data-px="bk-bill" data-id="${esc(b.id)}" style="flex-direction:column;align-items:flex-start;gap:2px;cursor:pointer"><span>${esc(b.name)} · ${esc(fmtMoney(b.amount))}</span><span class="pp-bk-st ${st.k}">${esc(st.label)}${b.auto ? ' · ตัดอัตโนมัติ' : ''}${b.due ? ' · ครั้งเดียว' : ''}</span></span>
+   ${st.k === 'paid' ? `<span class="pp-bk-paid">${ICON.check}</span>` : `<button class="pp-btn primary" data-px="bk-pay" data-id="${esc(b.id)}" style="padding:6px 12px">จ่าย</button>`}
+  </div>`).join('')}</div>` : `<div class="pp-hint">ยังไม่มีบิล กดบวกเพื่อเพิ่ม ค่าเช่า ค่าไฟ ค่าโทรศัพท์ หรือให้บทหลักส่งบิลมาเอง</div>`}
+  <div class="pp-sec-label">ผ่อนชำระ <button class="pp-bk-add" data-px="bk-plan-add">${ICON.plus}</button></div>
+  ${bk.plans.length ? `<div class="pp-card">${bk.plans.map(pl => `<div class="pp-cell pp-cell-col pp-bk-plan">
+   <div class="pp-bk-plan-top" data-px="bk-plan" data-id="${esc(pl.id)}"><span>${esc(pl.name)}</span><span>${pl.paidCount}/${pl.months} งวด · งวดละ ${esc(fmtMoney(ppBkPlanMonthly(pl)))}</span></div>
+   <div class="pp-px-track"><i style="width:${Math.round(pl.paidCount / pl.months * 100)}%"></i></div>
+   ${ppBkPlanDue(pl) ? `<button class="pp-btn primary" data-px="bk-plan-pay" data-id="${esc(pl.id)}" style="padding:5px 12px;align-self:flex-end">จ่ายงวดนี้</button>` : `<span class="pp-bk-st paid" style="align-self:flex-end">${pl.paidCount >= pl.months ? 'ผ่อนครบแล้ว' : 'เดือนนี้จ่ายแล้ว'}</span>`}
+  </div>`).join('')}</div>` : `<div class="pp-hint">ผ่อนของ เช่น มือถือ 10 เดือน กดบวกเพื่อเพิ่ม</div>`}
+  <div class="pp-sec-label">สลิปล่าสุด</div>
+  ${walletHistoryArr().length ? `<div class="pp-whist">${walletHistoryArr().slice(-6).reverse().map(walletRowHTML).join('')}</div><div class="pp-hint">แตะรายการเพื่อดูสลิป</div>` : `<div class="pp-empty">${ICON.money}<br>ยังไม่มีรายการ</div>`}
+  <div class="pp-card"><div class="pp-cell"><span class="pp-cell-lb" style="flex-direction:column;align-items:flex-start;gap:2px"><span>บทหลักรู้เรื่องบิลค้าง</span><span style="font-size:11px;color:var(--pp-txt3);line-height:1.4">ส่งเฉพาะบิลที่ใกล้ครบหรือเลยกำหนด</span></span><label class="pp-switch"><input type="checkbox" id="pp-bk-rp"${cfg.bkRp !== false ? ' checked' : ''}><span></span></label></div></div>`;
+}
+function ppBkRef(h) { return 'PP' + String(ppWxSeedNum(h.id || String(h.ts)) % 1e10).padStart(10, '0'); }
+function ppBkSlip(id) {
+ const h = walletHistoryArr().find(x => x.id === id);
+ if (!h) return;
+ const inn = h.dir === 'in';
+ const acc = String(getCfg().walletAccount || '').replace(/\d(?=[\d-]{4})/g, 'x');
+ const d = new Date(h.ts);
+ const who = h.cid ? cname(h.cid) : (h.name || '');
+ ppOverlay('center pp-bk-slip-ov', `<div class="pp-bk-slip">
+  <div class="pp-bk-slip-ok">${ICON.check}</div>
+  <div class="pp-bk-slip-t">${inn ? 'รับเงินสำเร็จ' : 'ทำรายการสำเร็จ'}</div>
+  <div class="pp-bk-slip-d">${d.getDate()} ${TH_MONTHS[d.getMonth()]} ${d.getFullYear() + 543} · ${esc(fmtHM(d))} น.</div>
+  <div class="pp-bk-slip-amt ${inn ? 'in' : 'out'}">${esc(fmtMoney(h.amount))}</div>
+  <div class="pp-bk-slip-rows">
+   <div><span>จาก</span><b>${esc(inn ? who || 'ไม่ระบุ' : walletName())}</b>${inn ? '' : `<i>${esc(acc)}</i>`}</div>
+   <div><span>ไปยัง</span><b>${esc(inn ? walletName() : who || 'ไม่ระบุ')}</b>${inn ? `<i>${esc(acc)}</i>` : ''}</div>
+   ${h.note ? `<div><span>บันทึก</span><b>${esc(h.note)}</b></div>` : ''}
+   <div><span>เลขที่รายการ</span><b class="mono">${esc(ppBkRef(h))}</b></div>
+  </div>
+  <div class="pp-bk-slip-foot">Pocket Wallet</div>
+  <button class="pp-btn" data-px="bk-slip-close">ปิด</button>
+ </div>`);
+}
+function ppBkClick(a, el) {
+ const bk = ppBk();
+ const num = v => Math.round(Math.abs(parseFloat(String(v || '').replace(/[^\d.]/g, '')) || 0));
+ if (a === 'bk-slip') { ppBkSlip(el.dataset.id); return true; }
+ if (a === 'bk-slip-close') { el.closest('.pp-ov')?.remove(); return true; }
+ if (a === 'bk-pay') { ppBkPayBill(el.dataset.id); return true; }
+ if (a === 'bk-plan-pay') { ppBkPayPlan(el.dataset.id); return true; }
+ if (a === 'bk-salary') {
+  const s = bk.salary || {};
+  ppPrompt('เงินเดือนเท่าไหร่ (0 = ยกเลิก)', s.amount ? String(s.amount) : '', v => {
+   const amount = num(v);
+   if (!amount) { bk.salary = null; saveCfg(); renderWallet(); return; }
+   ppPrompt('เข้าทุกวันที่เท่าไหร่ (1-28)', String(s.day || 25), dv => {
+    const day = Math.min(28, Math.max(1, parseInt(dv, 10) || 25));
+    ppPrompt('จ่ายโดยใคร (ไม่บังคับ)', s.from || '', from => {
+     const t = ppBkToday();
+     bk.salary = { amount, day, from: String(from || '').trim().slice(0, 60), lastPaid: t.getDate() >= day ? ppBkMonth(t) : (s.lastPaid || '') };
+     saveCfg(); renderWallet();
+     ppToast(`ตั้งเงินเดือน ${fmtMoney(amount)} ทุกวันที่ ${day}`);
+    }, { placeholder: 'เช่น บริษัท ABC' });
+   });
+  }, { placeholder: '25000' });
+  return true;
+ }
+ if (a === 'bk-bill-add') {
+  ppPrompt('ชื่อบิล', '', name => {
+   name = String(name || '').trim().slice(0, 60);
+   if (!name) return;
+   ppPrompt('จำนวนเงิน', '', v => {
+    const amount = num(v);
+    if (!amount) return;
+    ppPrompt('ครบกำหนดทุกวันที่ (1-28)', String(ppBkToday().getDate()), dv => {
+     bk.bills.push({ id: newId(), name, amount, day: Math.min(28, Math.max(1, parseInt(dv, 10) || 1)), auto: false });
+     saveCfg(); renderWallet();
+    });
+   });
+  }, { placeholder: 'เช่น ค่าเช่าห้อง' });
+  return true;
+ }
+ if (a === 'bk-bill') {
+  const b = bk.bills.find(x => x.id === el.dataset.id);
+  if (!b) return true;
+  ppSheet(b.name, [
+   ppBkBillPaid(b) ? null : { label: `จ่าย ${fmtMoney(b.amount)}`, icon: ICON.money, onClick: () => ppBkPayBill(b.id) },
+   { label: b.auto ? 'ปิดตัดอัตโนมัติ' : 'ตัดเงินอัตโนมัติเมื่อครบกำหนด', icon: ICON.regen, onClick: () => { b.auto = !b.auto; saveCfg(); renderWallet(); } },
+   { label: 'แก้จำนวนเงิน', icon: ICON.gear, onClick: () => ppPrompt('จำนวนเงิน', String(b.amount), v => { const n = num(v); if (n) { b.amount = n; saveCfg(); renderWallet(); } }) },
+   { label: 'ลบบิลนี้', icon: ICON.trash, danger: true, onClick: () => { bk.bills = bk.bills.filter(x => x.id !== b.id); saveCfg(); renderWallet(); } },
+  ].filter(Boolean));
+  return true;
+ }
+ if (a === 'bk-plan-add') {
+  ppPrompt('ผ่อนอะไร', '', name => {
+   name = String(name || '').trim().slice(0, 60);
+   if (!name) return;
+   ppPrompt('ราคาทั้งหมด', '', v => {
+    const total = num(v);
+    if (!total) return;
+    ppPrompt('กี่เดือน', '10', mv => {
+     const months = Math.min(60, Math.max(1, parseInt(mv, 10) || 10));
+     bk.plans.push({ id: newId(), name, total, months, paidCount: 0, day: ppBkToday().getDate() > 28 ? 28 : ppBkToday().getDate(), auto: false, lastPaid: '' });
+     saveCfg(); renderWallet();
+    });
+   });
+  }, { placeholder: 'เช่น มือถือ' });
+  return true;
+ }
+ if (a === 'bk-plan') {
+  const pl = bk.plans.find(x => x.id === el.dataset.id);
+  if (!pl) return true;
+  ppSheet(pl.name, [
+   { label: pl.auto ? 'ปิดตัดอัตโนมัติ' : 'ตัดงวดอัตโนมัติทุกเดือน', icon: ICON.regen, onClick: () => { pl.auto = !pl.auto; saveCfg(); renderWallet(); } },
+   { label: 'ลบรายการผ่อนนี้', icon: ICON.trash, danger: true, onClick: () => { bk.plans = bk.plans.filter(x => x.id !== pl.id); saveCfg(); renderWallet(); } },
+  ]);
+  return true;
+ }
+ return false;
+}
+
+PP_PX_RENDER.dating = ppDtRender;
+
+const PP_DT_CSS = `
+#pp-scr-dating .pp-body{padding-bottom:18px;}
+.pp-dt-seg{margin-bottom:12px;}
+.pp-dt-setup{display:flex;flex-direction:column;gap:12px;}
+.pp-dt-logo{display:flex;align-items:center;justify-content:center;gap:8px;color:#ff375f;margin:6px 0 2px;}
+.pp-dt-logo svg{width:64px;height:64px;}
+.pp-dt-logo b{font-size:26px;letter-spacing:-.5px;}
+.pp-dt-gen{align-self:stretch;padding:12px;font-size:15px;}
+.pp-dt-stack{position:relative;height:430px;margin:0 2px;}
+.pp-dt-stack > .pp-dt-card,.pp-dt-under{position:absolute;inset:0;}
+.pp-dt-under{transform:scale(.95) translateY(10px);opacity:.6;pointer-events:none;}
+.pp-dt-card{border-radius:22px;overflow:hidden;background:var(--pp-surface,#1c1c1e);box-shadow:0 12px 34px rgba(0,0,0,.35);display:flex;flex-direction:column;touch-action:pan-y;transition:transform .25s ease,opacity .25s ease;user-select:none;-webkit-user-select:none;--like:0;--nope:0;}
+.pp-dt-card.drag{transition:none;cursor:grabbing;}
+.pp-dt-photo{position:relative;flex:1 1 58%;min-height:0;display:flex;align-items:center;justify-content:center;color:#fff;}
+.pp-dt-initial{font-size:110px;font-weight:200;opacity:.55;line-height:1;}
+.pp-dt-looks{position:absolute;top:12px;left:12px;right:12px;font-size:11.5px;line-height:1.4;padding:6px 9px;border-radius:10px;background:rgba(0,0,0,.28);backdrop-filter:blur(8px);-webkit-backdrop-filter:blur(8px);}
+.pp-dt-head{position:absolute;left:0;right:0;bottom:0;padding:34px 14px 10px;background:linear-gradient(180deg,transparent,rgba(0,0,0,.6));}
+.pp-dt-head b{font-size:24px;}
+.pp-dt-head > span{font-size:20px;font-weight:300;}
+.pp-dt-sub{font-size:12.5px;opacity:.85;margin-top:2px;}
+.pp-dt-stamp{position:absolute;top:58px;padding:4px 12px;border:3px solid;border-radius:10px;font-size:22px;font-weight:800;letter-spacing:1px;}
+.pp-dt-stamp.like{left:16px;color:#30d158;transform:rotate(-14deg);opacity:var(--like);}
+.pp-dt-stamp.nope{right:16px;color:#ff453a;transform:rotate(14deg);opacity:var(--nope);}
+.pp-dt-info{flex:0 1 auto;padding:12px 14px 14px;display:flex;flex-direction:column;gap:8px;overflow:auto;max-height:44%;}
+.pp-dt-bio{font-size:13.5px;line-height:1.45;}
+.pp-dt-chips{display:flex;flex-wrap:wrap;gap:5px;}
+.pp-dt-chips span{font-size:11.5px;padding:3px 9px;border-radius:99px;background:var(--pp-fill1);}
+.pp-dt-qa{display:flex;flex-direction:column;gap:3px;padding:9px 11px;border-radius:12px;background:var(--pp-fill1);}
+.pp-dt-qa i{font-style:normal;font-size:11px;color:var(--pp-txt3);}
+.pp-dt-qa b{font-size:14px;font-weight:600;}
+.pp-dt-acts{display:flex;justify-content:center;align-items:center;gap:22px;margin-top:14px;}
+.pp-dt-btn{width:58px;height:58px;border-radius:50%;border:none;display:flex;align-items:center;justify-content:center;cursor:pointer;background:var(--pp-surface,#1c1c1e);box-shadow:0 6px 18px rgba(0,0,0,.3);transition:transform .15s;}
+.pp-dt-btn:active{transform:scale(.9);}
+.pp-dt-btn svg{width:26px;height:26px;}
+.pp-dt-btn.nope{color:#ff453a;}.pp-dt-btn.like{color:#ff375f;}
+.pp-dt-btn.super{width:46px;height:46px;color:#0a84ff;}
+.pp-dt-btn.super svg{width:22px;height:22px;}
+.pp-dt-left{text-align:center;font-size:11.5px;color:var(--pp-txt3);margin-top:8px;}
+.pp-dt-av{display:inline-flex;align-items:center;justify-content:center;border-radius:50%;color:#fff;font-weight:500;flex-shrink:0;}
+.pp-dt-mrow{display:flex;gap:12px;overflow-x:auto;padding:2px 2px 12px;}
+.pp-dt-mav{display:flex;flex-direction:column;align-items:center;gap:4px;background:none;border:none;color:inherit;cursor:pointer;font-size:11.5px;}
+#pp-dt-match{position:absolute;inset:0;z-index:420;display:flex;align-items:center;justify-content:center;background:rgba(10,0,6,.72);backdrop-filter:blur(16px);-webkit-backdrop-filter:blur(16px);animation:pp-px-up .35s both;}
+.pp-dt-match-in{display:flex;flex-direction:column;align-items:center;gap:10px;padding:24px;color:#fff;text-align:center;}
+.pp-dt-match-t{font-size:34px;font-weight:800;letter-spacing:-1px;background:linear-gradient(90deg,#ff375f,#ff9f0a);-webkit-background-clip:text;background-clip:text;color:transparent;}
+.pp-dt-match-s{font-size:14px;opacity:.85;}
+.pp-dt-match-avs{display:flex;margin:14px 0 10px;}
+.pp-dt-match-avs > *{border:3px solid #fff;border-radius:50%;box-shadow:0 8px 24px rgba(0,0,0,.4);}
+.pp-dt-match-avs > :last-child{margin-left:-18px;}
+.pp-dt-match-in .pp-btn{min-width:200px;}
+.pp-bk-sum{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:0 0 6px;}
+.pp-bk-sum > div{padding:10px 12px;border-radius:14px;background:var(--pp-fill1);display:flex;flex-direction:column;gap:2px;}
+.pp-bk-sum span{font-size:11px;color:var(--pp-txt3);}
+.pp-bk-sum b{font-size:17px;}
+.pp-bk-add{border:none;background:none;color:var(--pp-accent);cursor:pointer;padding:0 4px;vertical-align:middle;}
+.pp-bk-add svg{width:16px;height:16px;}
+.pp-bk-st{font-size:11.5px;color:var(--pp-txt3);}
+.pp-bk-st.over{color:#ff453a;font-weight:600;}
+.pp-bk-st.soon{color:#ff9f0a;font-weight:600;}
+.pp-bk-st.paid{color:#30d158;}
+.pp-bk-paid{color:#30d158;display:flex;}
+.pp-bk-paid svg{width:20px;height:20px;}
+.pp-bk-plan{gap:6px;}
+.pp-bk-plan-top{display:flex;justify-content:space-between;gap:8px;font-size:14px;cursor:pointer;}
+.pp-bk-plan-top span:last-child{font-size:11.5px;color:var(--pp-txt3);}
+.pp-wrow[data-px]{cursor:pointer;}
+.pp-bk-slip{width:min(300px,86vw);background:#fff;color:#1c1c1e;border-radius:18px;padding:22px 18px 16px;display:flex;flex-direction:column;align-items:center;gap:4px;box-shadow:0 20px 50px rgba(0,0,0,.45);}
+.pp-bk-slip-ok{width:50px;height:50px;border-radius:50%;background:#30d158;color:#fff;display:flex;align-items:center;justify-content:center;}
+.pp-bk-slip-ok svg{width:28px;height:28px;}
+.pp-bk-slip-t{font-size:17px;font-weight:700;margin-top:6px;}
+.pp-bk-slip-d{font-size:12px;color:#6e6e73;}
+.pp-bk-slip-amt{font-size:30px;font-weight:700;margin:10px 0 6px;letter-spacing:-.5px;}
+.pp-bk-slip-amt.in{color:#1a9e45;}
+.pp-bk-slip-rows{width:100%;border-top:1px dashed #d1d1d6;border-bottom:1px dashed #d1d1d6;padding:8px 0;display:flex;flex-direction:column;gap:7px;}
+.pp-bk-slip-rows > div{display:grid;grid-template-columns:78px 1fr;gap:2px 8px;font-size:12.5px;}
+.pp-bk-slip-rows span{color:#6e6e73;}
+.pp-bk-slip-rows i{grid-column:2;font-style:normal;font-size:11px;color:#8e8e93;}
+.pp-bk-slip-rows .mono{font-family:ui-monospace,Menlo,monospace;font-weight:500;}
+.pp-bk-slip-foot{font-size:11px;color:#8e8e93;margin:8px 0 6px;letter-spacing:1px;}
+.pp-bk-slip .pp-btn{min-width:120px;background:#1c1c1e !important;color:#fff !important;border:none !important;}
+`;
+console.log(`[pocket-phone] ${PP_VERSION} ท่อน 13 พร้อม - แอพหาคู่ + ธนาคาร`);
 
 // ══════════════════════════════════════════════════════════
 // BOOT
