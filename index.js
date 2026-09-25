@@ -1,4 +1,6 @@
 // pocket-phone/index.js
+// ★ [2.51.0] ท่อน 6 "ยุคของเครื่อง" (ppEra*, PP_ERAS 13 แบบ) · โทเคนจริงเมื่อเปิดคีย์เวิร์ด (ppKwTokenStats, kwTurnHist)
+// · ป๊อปอัพเบลอพื้นหลัง · พื้นหลังแชทอยู่บนชั้นตรึง #pp-chat-bgl · แผนที่ลาก/ซูมได้
 // ★ [2.50.0] ท่อน 5/5 "ชีวิตจริงในมือถือ" (ppPx*) — แบตจำลอง · ออฟไลน์จริง (คิวข้อความ) · โหมดโฟกัส
 // · ส่องมือถือ · ออนไลน์ล่าสุด · แคปหน้าจอ · ฝากข้อความเสียง · แอพปฏิทิน/อีเมล/รูปภาพ/แผนที่/ส่งของ
 // · event ใหม่ email/calendar/photo/place/phone_state/delivery (โมดูลสะพาน 'life') · หน้าตั้งค่า "ชีวิตจริง"
@@ -21,7 +23,7 @@
 // getContext ล้วน · ไม่มี import/export · lazy + try/catch
 // ⚠️ รันเดี่ยวไม่ได้ ต้องแปะครบ 4 ท่อน
 
-const PP_VERSION = '2.50.0';
+const PP_VERSION = '2.51.0';
 const MODULE_NAME = 'pocket-phone';
 
 // ══════════════════════════════════════════════════════════
@@ -2860,6 +2862,8 @@ function ppBuildContactBlock() {
 /** ประกอบชิ้น prompt ตามโมดูลที่เปิด
  * ★ 2.2.0 ทุกโมดูลผ่านตัวแก้คำก่อน และผ่านด่านคีย์เวิร์ดถ้าเปิดไว้
  * hay = ข้อความที่ใช้ตรวจคีย์เวิร์ด ส่งมาจาก interceptor */
+/** ★ [2.51.0] ตอนวัดโทเคน: ข้ามด่านคีย์เวิร์ด (วัดค่าเต็มทุกโมดูล) และห้ามทับบันทึกว่าเทิร์นจริงส่งอะไร */
+let ppKwMeasuring = false;
 function ppBuildBridgeParts(actionBody, hay) {
  const cfg = getCfg();
  const H = String(hay || '');
@@ -2884,7 +2888,7 @@ function ppBuildBridgeParts(actionBody, hay) {
  const mods = {};
  const put = (key, text) => {
   if (!text) return;
-  if (!ppKwPass(key, H)) return;
+  if (!ppKwMeasuring && !ppKwPass(key, H)) return;
   hits[key] = true;
   mods[key] = text;
  };
@@ -3009,7 +3013,7 @@ function ppBuildBridgeParts(actionBody, hay) {
 
  const body = actionBody || '';
  const botBatch = bridgeOn('actionlog') ? ppPrepareBotBatch() : null;
- cfg.kwLastHit = hits;
+ if (!ppKwMeasuring) cfg.kwLastHit = hits;
  return {
   core, mods,
   actionBody: bridgeOn('actionlog') ? body : '',
@@ -3060,7 +3064,9 @@ async function ppMeasureBridgeTokens(force) {
  out.ok = true;
  try {
   Object.keys(cfg.bridgeMods).forEach(k => { cfg.bridgeMods[k] = true; });
-  const parts = ppBuildBridgeParts('', 'ข้อความ โทร โพสต์ สตอรี่ เงิน ติดตาม ข่าว สติกเกอร์ ธีม');
+  let parts;
+  ppKwMeasuring = true;
+  try { parts = ppBuildBridgeParts('', 'ข้อความ โทร โพสต์ สตอรี่ เงิน ติดตาม ข่าว สติกเกอร์ ธีม'); } finally { ppKwMeasuring = false; }
   out.mods.core = await ppCountTokens(parts.core);
   for (const k of Object.keys(parts.mods)) out.mods[k] = await ppCountTokens(parts.mods[k]);
   out.mods.actionlog = await ppCountTokens(ppBuildActionMessage(ppBuildLogBody() || '- ตัวอย่างบรรทัดกิจกรรมหนึ่งบรรทัด', ''));
@@ -3104,6 +3110,45 @@ function ppBridgeActiveTotal(cache) {
  let sum = c.mods.core || 0;
  BRIDGE_MOD_META.forEach(m => { if (bridgeOn(m.key)) sum += (c.mods[m.key] || 0); });
  return sum;
+}
+/** ★ [2.51.0] จดทุกเทิร์นจริงว่าโมดูลไหนถูกส่ง/ถูกคีย์เวิร์ดข้าม — เก็บ 30 เทิร์นล่าสุด */
+function ppKwRecordTurn(parts) {
+ const cfg = getCfg();
+ const sent = [], skipped = [];
+ BRIDGE_MOD_META.forEach(m => {
+  if (!bridgeOn(m.key)) return;
+  const gated = ppKwOn(m.key);
+  if (!gated || (parts && parts.mods && parts.mods[m.key] !== undefined)) sent.push(m.key);
+  else skipped.push(m.key);
+ });
+ if (!Array.isArray(cfg.kwTurnHist)) cfg.kwTurnHist = [];
+ cfg.kwTurnHist.push({ ts: Date.now(), sent, skipped });
+ if (cfg.kwTurnHist.length > 30) cfg.kwTurnHist = cfg.kwTurnHist.slice(-30);
+ saveCfg();
+}
+/** ★ [2.51.0] สรุปโทเคนที่จ่ายจริง เทียบกับค่าเต็ม — ใช้ค่าที่วัดไว้ล่าสุดคูณกับประวัติเทิร์นจริง
+ * คืน null ถ้ายังไม่เคยวัด */
+function ppKwTokenStats(cache) {
+ const c = cache || getCfg().bridgeTokenCache;
+ if (!c || !c.ok || !c.mods) return null;
+ const cfg = getCfg();
+ const core = parseInt(c.mods.core, 10) || 0;
+ const tokOf = k => parseInt(c.mods[k], 10) || 0;
+ const on = BRIDGE_MOD_META.filter(m => bridgeOn(m.key));
+ const full = core + on.reduce((a, m) => a + tokOf(m.key), 0);
+ const gated = on.filter(m => ppKwOn(m.key));
+ const hist = (Array.isArray(cfg.kwTurnHist) ? cfg.kwTurnHist : []).slice(-20);
+ // เทิร์นที่ยังไม่เคยบันทึก: โมดูลที่เปิดคีย์เวิร์ด ถือว่าเป็นไปตามป้ายเทิร์นล่าสุด
+ const hitLast = cfg.kwLastHit || {};
+ const costTurn = t => core + on.reduce((a, m) => a + ((!ppKwOn(m.key) || (t ? t.sent.includes(m.key) : hitLast[m.key] === true)) ? tokOf(m.key) : 0), 0);
+ const last = costTurn(hist[hist.length - 1] || null);
+ const avg = hist.length ? Math.round(hist.reduce((a, t) => a + costTurn(t), 0) / hist.length) : last;
+ const freq = {};
+ gated.forEach(m => {
+  const n = hist.filter(t => t.sent.includes(m.key)).length;
+  freq[m.key] = { n, of: hist.length, tokFull: tokOf(m.key), tokAvg: hist.length ? Math.round(tokOf(m.key) * n / hist.length) : (hitLast[m.key] ? tokOf(m.key) : 0) };
+ });
+ return { core, full, last, avg, turns: hist.length, gated: gated.length, saved: Math.max(0, full - avg), pct: full ? Math.round(Math.max(0, full - avg) * 100 / full) : 0, freq };
 }
 function ppApplyBridgePreset(kind) {
  const cfg = getCfg();
@@ -5196,6 +5241,7 @@ function ppApplyDeco() {
  ppRenderStickers();
  ppRenderApps();
  ppFreeBar();
+ try { ppEraApply(); } catch {} // ★ [2.51.0] ยุคของเครื่องต้องทาทับเป็นอันสุดท้าย
 }
 
 /** เลือกรูปจากเครื่อง แล้วย่อก่อนเก็บ */
@@ -11128,6 +11174,7 @@ function ppApplyIglass() {
  f.style.setProperty('--lg-edge-a', String(Math.max(0, Math.min(100, g.edge != null ? g.edge : 70)) / 100));
  try { if (document.getElementById('pp-home')) ppRenderHomeDots(); } catch {}
  requestAnimationFrame(ppLgSyncPills);
+ try { ppEraApply(); } catch {} // ★ [2.51.0] ยุคของเครื่องต้องทาทับเป็นอันสุดท้าย
 }
 /** วัดตำแหน่งปุ่มที่เลือก (.on) ในแท็บ/สวิตช์แบ่งหมวดทุกตัว แล้วส่งเป็น CSS var
  * ให้หยดกระจกไหลตามได้โดยไม่ต้องแก้ทุกฟังก์ชัน render ที่สร้างแท็บ */
@@ -12744,6 +12791,18 @@ function hydrateThreadImages() {
  ppHydrateStickerImgs(document.getElementById('pp-msgs'));
  ppHydrateStickerImgs(document.getElementById('pp-starred-body'));
 }
+/** ★ [2.51.0] ชั้นพื้นหลังของห้องแชท — ตรึงเต็มหน้าจอแชท อยู่หลังทุกอย่าง ไม่เลื่อน ไม่ซูมตามข้อความ */
+function ppChatBgLayer() {
+ const scr = document.getElementById('pp-scr-chat');
+ if (!scr) return null;
+ let l = document.getElementById('pp-chat-bgl');
+ if (!l) {
+  l = document.createElement('div');
+  l.id = 'pp-chat-bgl';
+  scr.insertBefore(l, scr.firstChild);
+ }
+ return l;
+}
 async function applyChatStyle() {
  const tid = ppActiveGroup ? ppActiveGroup.id : (ppActiveContact ? ppActiveContact.id : null);
  if (!tid) return;
@@ -12751,25 +12810,24 @@ async function applyChatStyle() {
  const scr = document.getElementById('pp-scr-chat');
  const msgs = document.getElementById('pp-msgs');
  if (msgs) {
- // ★ 2.33.0 ตรึงพื้นหลังกับกรอบ ไม่ให้เลื่อนตามข้อความ
- msgs.style.backgroundAttachment = 'local';
- msgs.classList.toggle('gx-bg-mesh', st.bg === 'mesh'); // [2.39.0] ไล่เฉดเคลื่อนไหว
- if (st.bg === 'custom') {
- const img = await loadMedia('chatbg-' + tid);
- if (img) {
-   // [2.40.0] เดิมใช้ attachment:fixed ทำให้เบราว์เซอร์วัดขนาดรูปจากทั้งหน้าจอ
-   // ไม่ใช่จากกรอบข้อความ รูปเลยถูกซูมใหญ่เกินจริง เปลี่ยนเป็น local เท่านั้น
-   msgs.style.background = '';
-   msgs.style.backgroundImage = `url(${img})`;
-   msgs.style.backgroundColor = '#000';
-   msgs.style.backgroundRepeat = 'no-repeat';
-   msgs.style.backgroundPosition = 'center center';
-   msgs.style.backgroundSize = 'cover';
-   msgs.style.backgroundAttachment = 'local';
+ // ★ [2.51.0] พื้นหลังแชทอยู่บนชั้นแยกที่ตรึงกับหน้าจอ ไม่อยู่ในกล่องที่เลื่อนได้แล้ว
+ // ของเดิมทาไว้บน #pp-msgs แบบ attachment:local ขนาด cover จึงคิดจากความสูงของข้อความทั้งหมด
+ // แชทยิ่งยาวรูปยิ่งซูม และรูปเลื่อนตามข้อความ ตอนนี้รูปนิ่งเท่าจอเสมอ
+ msgs.classList.remove('gx-bg-mesh');
+ msgs.style.background = '';
+ msgs.style.backgroundImage = '';
+ const layer = ppChatBgLayer();
+ if (layer) {
+  layer.classList.toggle('gx-bg-mesh', st.bg === 'mesh'); // [2.39.0] ไล่เฉดเคลื่อนไหว
+  layer.style.background = '';
+  layer.style.backgroundImage = '';
+  if (st.bg === 'custom') {
+   const img = await loadMedia('chatbg-' + tid);
+   if (img) { layer.style.backgroundColor = '#000'; layer.style.backgroundImage = `url(${img})`; }
+  } else if (st.bg && st.bg !== 'mesh') {
+   layer.style.background = CHAT_BGS[st.bg] || '';
   }
- else { msgs.style.backgroundImage = ''; msgs.style.background = ''; }
- } else if (st.bg === 'mesh') { msgs.style.backgroundImage = ''; msgs.style.background = ''; }
- else { msgs.style.backgroundImage = ''; msgs.style.background = st.bg ? (CHAT_BGS[st.bg] || '') : ''; }
+ }
  msgs.style.backdropFilter = st.msgBlur ? `blur(${st.msgBlur}px)` : '';
  }
  if (scr) {
@@ -20919,6 +20977,19 @@ const PP_GUIDE_FAQ = [
    text: 'ใช้รูปเล็กลง หรือใช้ลิงก์แทนการดึงจากเครื่อง · รูปจากลิงก์ไม่กินพื้นที่และส่งต่อไปเครื่องคนอื่นได้ด้วย' },
 ];
 const PP_CHANGELOG = [
+ { v: '2.51.0', title: 'ยุคของเครื่อง 13 แบบ โทเคนจริงตอนเปิดคีย์เวิร์ด และแก้ป๊อปอัพ พื้นหลังแชท แผนที่',
+   lines: [
+    'ยุคของเครื่อง เปลี่ยนมือถือทั้งเครื่องได้ 13 แบบ ปัจจุบัน ปุ่มกดจอเขียว 1999 ฝาพับจอสี Y2K 2004 คีย์บอร์ด QWERTY 2008 สมาร์ทโฟนยุคแรก 2010 ไทล์สี่เหลี่ยม แอนดรอยด์โฮโล ลูกกวาดโปร่งแสง ไซเบอร์พังก์ 2077 โฮโลแกรม กระจกเวทมนตร์ ทองเหลืองไอน้ำ และหยกโบราณ',
+    'แต่ละยุคเปลี่ยนครบทั้งสี ฟอนต์ วอลเปเปอร์ ทรงไอคอน ฟองแชท แถบบน ขอบเครื่อง และเอฟเฟกต์ เช่นจอพิกเซล เส้นสแกนนีออน แสงโฮโลแกรมสั่นไหว ประกายเวท',
+    'บอทรู้ว่ามือถือในเรื่องเป็นยุคไหน ยุคปุ่มกดส่งได้แค่ SMS ยุคแฟนตาซีเรียกเป็นกระจกเวท ไม่พูดถึงเทคโนโลยีสมัยใหม่ และซ่อนแอพที่ยุคนั้นยังไม่มีได้ ข้อมูลไม่หาย',
+    'หน้าสะพานเชื่อม เปิดคีย์เวิร์ดแล้วบอกโทเคนที่จ่ายจริง เทิร์นล่าสุด เฉลี่ยจากเทิร์นที่เล่นจริง ค่าเต็มถ้าไม่มีคีย์เวิร์ด และประหยัดไปกี่เปอร์เซ็นต์ แต่ละโมดูลบอกว่าถูกส่งกี่เทิร์นจากกี่เทิร์น',
+    'แก้ตัวเลขโทเคนเดิมที่ไม่ขยับหลังกดวัด และแก้การวัดที่ได้ศูนย์กับโมดูลที่เปิดคีย์เวิร์ดไว้',
+    'ป๊อปอัพทุกอันเบลอพื้นหลังจริง ตัวกล่องทึบขึ้น ตัวหนังสือไม่ซ้อนกันอีก',
+    'พื้นหลังห้องแชทตรึงอยู่กับจอ ไม่เลื่อนตามข้อความ ไม่ซูมใหญ่ขึ้นเรื่อย ๆ ตามความยาวแชทแล้ว',
+    'แผนที่ลากได้ ถ่างนิ้วหรือหมุนล้อเมาส์เพื่อซูม มีปุ่มซูมเข้าออกและปุ่มกลับไปตำแหน่งของฉัน เมืองใหญ่ขึ้นมีตึก สวน แม่น้ำ และชื่อย่าน',
+   ],
+   tip: 'เลือกยุคได้ที่ ตั้งค่า > ยุคของเครื่อง กลับมายุคปัจจุบันแล้ว iGlassOS และชุดสีเดิมคืนมาเหมือนเดิมทุกอย่าง' },
+
  { v: '2.50.0', title: 'ชีวิตจริงในมือถือ: แบต สัญญาณ โฟกัส แอพใหม่ห้าตัว และส่องมือถือในโรล',
    lines: [
     'แบตเตอรี่จำลอง ลดตามเวลาที่ใช้ คุยสายนานกินแบตมาก เตือนที่ 20% 10% 5% แบตหมดแล้วเครื่องดับจริง เสียบชาร์จได้ที่ศูนย์ควบคุม ตัวเลขแบตอยู่ในตัวไอคอนแบบ iOS',
@@ -22460,7 +22531,11 @@ const PP_SET_PAGES = [
 function ppSetPageValue(key) {
  const cfg = getCfg();
  const cache = cfg.bridgeTokenCache;
- if (key === 'bridge') return cache && cache.ok ? `${ppBridgeActiveTotal(cache)} tok` : 'ยังไม่วัด';
+ if (key === 'bridge') {
+  if (!(cache && cache.ok)) return 'ยังไม่วัด';
+  const st = ppKwTokenStats(cache); // ★ [2.51.0] เปิดคีย์เวิร์ดแล้วโชว์ค่าที่จ่ายจริงโดยเฉลี่ย ไม่ใช่ค่าเต็ม
+  return st && st.gated ? `~${st.avg} tok` : `${ppBridgeActiveTotal(cache)} tok`;
+ }
  if (key === 'memory') return `${ppLogCount() + ppBotLogCount()} คิว`;
  if (key === 'drama') return cfg.dramaEnabled ? 'เปิด' : 'ปิด';
  if (key === 'look') return cfg.theme === 'dark' ? 'มืด' : 'สว่าง';
@@ -22575,7 +22650,9 @@ function ppPeDefault(key) {
  cfg.promptEdits = {};
  let out = '';
  try {
-  const parts = ppBuildBridgeParts('', 'ข้อความ โทร โพสต์ สตอรี่ เงิน ติดตาม ข่าว สติกเกอร์ ธีม');
+  let parts;
+  ppKwMeasuring = true;
+  try { parts = ppBuildBridgeParts('', 'ข้อความ โทร โพสต์ สตอรี่ เงิน ติดตาม ข่าว สติกเกอร์ ธีม'); } finally { ppKwMeasuring = false; }
   out = key === 'core' ? parts.core : (parts.mods[key] || '');
  } catch {} finally { cfg.promptEdits = saved; }
  return out;
@@ -22706,6 +22783,7 @@ function renderSetPage() {
  const personas = listUserPersonas();
 
  if (key === 'life') { body.innerHTML = ppPxLifePageHTML(); return; } // ★ [2.50.0]
+ if (key === 'era') { body.innerHTML = ppEraPageHTML(); return; } // ★ [2.51.0]
  if (key === 'glass') {
   const g = ppGx();
   const cfgSize = JSON.stringify(cfg).length;
@@ -23117,7 +23195,9 @@ function renderSetPage() {
   const total = measured ? ppBridgeActiveTotal(cache) : null;
   const totalCnt = getContacts().filter(c => !isBlocked(c.id)).length;
   // ★ 2.5.0 แยกตัวเลขสามค่า ค่าเต็มถ้าส่ง กับสถานะว่าเทิร์นล่าสุดส่งจริงไหม
-  const sentMap = (cache && cache.sentLast) || {};
+  // ★ [2.51.0] ใช้ผลเทิร์นจริงล่าสุด ไม่ใช่ภาพนิ่งตอนกดวัด (ของเดิมไม่ขยับเลยหลังวัด)
+  const sentMap = cfg.kwLastHit || {};
+  const kst = measured ? ppKwTokenStats(cache) : null;
   // ★ 2.9.7 คิดยอดที่ส่งจริงเทิร์นล่าสุด เทียบกับเพดานเต็ม
   // เดิมโชว์แต่ค่าเต็มของแต่ละโมดูล พอเปิดคีย์เวิร์ดแล้วไม่มีใครรู้ว่าจริง ๆ จ่ายไปเท่าไหร่
   let tokFull = 0, tokSent = 0, nGated = 0, nSkipped = 0;
@@ -23134,11 +23214,12 @@ function renderSetPage() {
   const modRow = m => {
    const gated = ppKwOn(m.key);
    const sent = !gated || sentMap[m.key] === true;
+   const fq = kst && kst.freq[m.key];
    return `<div class="pp-cell">
    <span class="pp-cell-lb" style="flex-direction:column;align-items:flex-start;gap:2px">
    <span>${esc(m.label)}${ppPromptIsEdited(m.key) ? '<span class="pp-editbadge">แก้แล้ว</span>' : ''}</span>
    <span style="font-size:11px;color:var(--pp-txt3);line-height:1.4">${esc(m.hint)}</span>
-   ${gated ? `<span style="font-size:10px;color:var(--pp-txt3)">คีย์เวิร์ดเปิด · ส่งเฉพาะตอนเข้าเงื่อนไข</span>` : ''}
+   ${gated ? `<span style="font-size:10px;color:var(--pp-txt3)">คีย์เวิร์ดเปิด · ${fq && fq.of ? `ส่งจริง ${fq.n}/${fq.of} เทิร์น · เฉลี่ย ${fq.tokAvg} tok ต่อเทิร์น จากเต็ม ${fq.tokFull}` : 'ส่งเฉพาะตอนเข้าเงื่อนไข · ยังไม่มีเทิร์นให้นับ'}</span>` : ''}
    </span>
    <span style="display:flex;align-items:center;gap:6px;flex-shrink:0">
    <span class="pp-toktriple">
@@ -23153,11 +23234,18 @@ function renderSetPage() {
   const cMode = cfg.contactSendMode || 'relevant';
   body.innerHTML = `
   <div class="pp-tokcard">
-  <div class="pp-tokcard-top"><span class="pp-tokcard-lb">${nGated ? 'เทิร์นล่าสุดส่งจริง' : 'รวมที่เปิดอยู่'}</span>
-  <span class="pp-tokcard-num" id="pp-tok-total">${measured ? `${nGated ? tokSent : total} tok` : 'ยังไม่วัด'}</span></div>
+  <div class="pp-tokcard-top"><span class="pp-tokcard-lb">${kst && kst.gated ? 'จ่ายจริงเฉลี่ยต่อเทิร์น' : 'รวมที่เปิดอยู่'}</span>
+  <span class="pp-tokcard-num" id="pp-tok-total">${measured ? `${kst && kst.gated ? kst.avg : total} tok` : 'ยังไม่วัด'}</span></div>
+  ${kst && kst.gated ? `<div class="pp-kwstat">
+   <div><b>${kst.last}</b><span>เทิร์นล่าสุด</span></div>
+   <div><b>${kst.avg}</b><span>เฉลี่ย ${kst.turns || 1} เทิร์น</span></div>
+   <div><b>${kst.full}</b><span>ถ้าไม่มีคีย์เวิร์ด</span></div>
+   <div class="save"><b>${kst.pct}%</b><span>ประหยัด ${kst.saved} tok</span></div>
+  </div>
+  <div class="pp-kwbar"><i style="width:${kst.full ? Math.round(kst.avg * 100 / kst.full) : 0}%"></i></div>` : ''}
   <div class="pp-tokcard-sub">${measured
-   ? (nGated
-      ? `เพดานเต็ม ${tokFull} tok · คีย์เวิร์ดช่วยประหยัดไป ${Math.max(0, tokFull - tokSent)} tok (ข้าม ${nSkipped} โมดูล)<br>นับด้วย${esc(cache.tokenizer)} · วัดเมื่อ ${esc(fmtNoteAge(cache.measuredAt))}`
+   ? (kst && kst.gated
+      ? `เปิดคีย์เวิร์ด ${kst.gated} โมดูล · เทิร์นล่าสุดข้าม ${nSkipped} โมดูล · แกนหลัก ${kst.core} tok ส่งทุกเทิร์น<br>ค่าเฉลี่ยคิดจากเทิร์นจริงที่เล่นไป ไม่ใช่การเดา · นับด้วย${esc(cache.tokenizer)} · วัดเมื่อ ${esc(fmtNoteAge(cache.measuredAt))}`
       : `นับด้วย${esc(cache.tokenizer)} · วัดเมื่อ ${esc(fmtNoteAge(cache.measuredAt))}`)
    : `${esc((cache && cache.tokenizer) || 'ยังไม่ได้วัด')} — กดปุ่มมุมขวาบน`}</div>
   <div class="pp-tokcard-acts">
@@ -26838,6 +26926,7 @@ window.ppGenInterceptor = function (chat, contextSize, abort, type) {
   ppPendingActionIds = actionBatch ? actionBatch.ids : null;
   // ★ 2.2.0 ส่งข้อความล่าสุดไปให้ตัวตรวจคีย์เวิร์ด
   const parts = ppBuildBridgeParts(actionBatch ? actionBatch.body : '', ppKwHaystack(chat));
+  try { ppKwRecordTurn(parts); } catch {} // ★ [2.51.0] จดว่าเทิร์นนี้ส่งโมดูลไหนจริง
   const modKeys = Object.keys(parts.mods);
   const eventMods = ['msg', 'groupcall', 'feed', 'story', 'wallet', 'social', 'news', 'board'].filter(bridgeOn);
   if (eventMods.length) {
@@ -29871,7 +29960,7 @@ function injectPhone() {
   cfg.bridgeMods[bmod] = !!v;
   saveCfg();
   const tot = document.getElementById('pp-tok-total');
-  if (tot) tot.textContent = ppTokLabel(ppBridgeActiveTotal());
+  if (tot) { const st = ppKwTokenStats(); tot.textContent = ppTokLabel(st && st.gated ? st.avg : ppBridgeActiveTotal()); }
   const chip = e.target.closest('.pp-cell')?.querySelector('.pp-tokchip');
   if (chip) chip.classList.toggle('on', !!v);
   return;
@@ -30555,6 +30644,8 @@ function ppPxStateMsg(chat) {
   const cfg = getCfg();
   const un = getUserDisplayName();
   const rows = [];
+  const eraLine = ppEraBotLine(); // ★ [2.51.0] มือถือในเรื่องเป็นยุคไหน
+  if (eraLine) rows.push(eraLine);
   if (cfg.pxRpState !== false) {
    const lv = ppPxBattLevel();
    const b = ppPxBatt();
@@ -30937,29 +31028,141 @@ function ppPxPeopleLocs() {
  Object.keys(p.people).forEach(cid => { if (!res[cid] || p.people[cid].ts > res[cid].ts) res[cid] = p.people[cid]; });
  return Object.keys(res).filter(cid => findContact(cid) && (!ppScopeActive() || ppContactInScope(findContact(cid)))).map(cid => Object.assign({ cid }, res[cid])).sort((a, b) => b.ts - a.ts);
 }
+/** ★ [2.51.0] แผนที่เมืองสมมติ ขนาดใหญ่กว่าจอ วาดจาก seed ชื่อผู้ใช้ จึงหน้าตาเดิมทุกครั้ง */
+function ppPxMapWorldSVG() {
+ const seed = ppPxHash(getUserDisplayName() + '|map');
+ const rnd = (i, m) => (ppPxHash(seed + ':' + i) % m);
+ let g = '';
+ // ตึก/บล็อกเมือง
+ for (let i = 0; i < 70; i++) {
+  const x = rnd('bx' + i, 96), y = rnd('by' + i, 96), w = 2 + rnd('bw' + i, 5), h = 2 + rnd('bh' + i, 5);
+  g += `<rect x="${x}" y="${y}" width="${w}" height="${h}" rx=".6" class="blk"/>`;
+ }
+ // สวน
+ for (let i = 0; i < 6; i++) g += `<ellipse cx="${6 + rnd('px' + i, 88)}" cy="${6 + rnd('py' + i, 88)}" rx="${3 + rnd('pr' + i, 5)}" ry="${2 + rnd('pq' + i, 4)}" class="park"/>`;
+ // แม่น้ำ
+ g += `<path d="M-2 ${30 + rnd('r1', 30)} C 25 ${rnd('r2', 60)}, 55 ${40 + rnd('r3', 55)}, 102 ${25 + rnd('r4', 50)}" class="river"/>`;
+ // ถนนสายรองและสายหลัก
+ for (let i = 0; i < 12; i++) {
+  const a = rnd('ra' + i, 100), b = rnd('rb' + i, 100);
+  g += i % 2 ? `<line x1="-2" y1="${a}" x2="102" y2="${b}" class="rd"/>` : `<line x1="${a}" y1="-2" x2="${b}" y2="102" class="rd"/>`;
+ }
+ g += `<line x1="-2" y1="${45 + rnd('m1', 10)}" x2="102" y2="${50 + rnd('m2', 10)}" class="rd main"/><line x1="${45 + rnd('m3', 10)}" y1="-2" x2="${40 + rnd('m4', 20)}" y2="102" class="rd main"/>`;
+ const names = ['ย่านเมืองเก่า', 'ริมน้ำ', 'ย่านธุรกิจ', 'หมู่บ้านสวน', 'ตลาดกลาง', 'ย่านมหาลัย'];
+ const labels = names.map((n, i) => `<text x="${8 + rnd('lx' + i, 80)}" y="${8 + rnd('ly' + i, 84)}" class="dist">${esc(n)}</text>`).join('');
+ return `<svg class="pp-px-map-roads" viewBox="0 0 100 100" preserveAspectRatio="none">${g}</svg><svg class="pp-px-map-labels" viewBox="0 0 100 100" preserveAspectRatio="none">${labels}</svg>`;
+}
+/** มุมมองแผนที่ — จำไว้ตอนสลับหน้า */
+const ppPxMapView = { x: null, y: null, z: 1 };
+let ppPxMapDragged = false;
+function ppPxMapApply() {
+ const map = document.getElementById('pp-px-map');
+ const w = document.getElementById('pp-px-map-world');
+ if (!map || !w) return;
+ const vw = map.clientWidth || 360, vh = map.clientHeight || 320;
+ const ww = w.offsetWidth * ppPxMapView.z, wh = w.offsetHeight * ppPxMapView.z;
+ // ห้ามลากจนหลุดขอบโลก
+ ppPxMapView.x = Math.min(0, Math.max(vw - ww, ppPxMapView.x));
+ ppPxMapView.y = Math.min(0, Math.max(vh - wh, ppPxMapView.y));
+ w.style.transform = `translate(${ppPxMapView.x}px,${ppPxMapView.y}px) scale(${ppPxMapView.z})`;
+ w.style.setProperty('--pp-map-z', String(ppPxMapView.z));
+}
+/** เลื่อนให้จุด (เปอร์เซ็นต์ของโลก) มาอยู่กลางจอ */
+function ppPxMapCenterOn(px, py) {
+ const map = document.getElementById('pp-px-map');
+ const w = document.getElementById('pp-px-map-world');
+ if (!map || !w) return;
+ ppPxMapView.x = map.clientWidth / 2 - w.offsetWidth * ppPxMapView.z * px / 100;
+ ppPxMapView.y = map.clientHeight / 2 - w.offsetHeight * ppPxMapView.z * py / 100;
+ ppPxMapApply();
+}
+function ppPxMapZoom(f, cx, cy) {
+ const map = document.getElementById('pp-px-map');
+ if (!map) return;
+ const z0 = ppPxMapView.z;
+ const z1 = Math.max(0.6, Math.min(3, z0 * f));
+ const ox = cx == null ? map.clientWidth / 2 : cx, oy = cy == null ? map.clientHeight / 2 : cy;
+ ppPxMapView.x = ox - (ox - ppPxMapView.x) * (z1 / z0);
+ ppPxMapView.y = oy - (oy - ppPxMapView.y) * (z1 / z0);
+ ppPxMapView.z = z1;
+ ppPxMapApply();
+}
+function ppPxMapPos(name) {
+ const h = ppPxHash(name);
+ return { x: 6 + (h % 88), y: 6 + ((h >>> 8) % 88) };
+}
+function ppPxMapBind() {
+ const map = document.getElementById('pp-px-map');
+ if (!map || map.dataset.bound) return;
+ map.dataset.bound = '1';
+ const pts = new Map();
+ let start = null;
+ map.addEventListener('pointerdown', e => {
+  if (e.target.closest('.pp-px-map-ctrl')) return;
+  pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  ppPxMapDragged = false;
+  start = { x: ppPxMapView.x, y: ppPxMapView.y, px: e.clientX, py: e.clientY, z: ppPxMapView.z, d: 0 };
+  if (pts.size === 2) { const [a, b] = [...pts.values()]; start.d = Math.hypot(a.x - b.x, a.y - b.y); }
+ });
+ map.addEventListener('pointermove', e => {
+  if (!pts.has(e.pointerId) || !start) return;
+  pts.set(e.pointerId, { x: e.clientX, y: e.clientY });
+  if (pts.size === 2 && start.d) {
+   const [a, b] = [...pts.values()];
+   const d = Math.hypot(a.x - b.x, a.y - b.y);
+   const r = map.getBoundingClientRect();
+   ppPxMapZoom((start.z * d / start.d) / ppPxMapView.z, (a.x + b.x) / 2 - r.left, (a.y + b.y) / 2 - r.top);
+   ppPxMapDragged = true;
+   return;
+  }
+  const dx = e.clientX - start.px, dy = e.clientY - start.py;
+  if (!ppPxMapDragged && Math.abs(dx) + Math.abs(dy) > 5) {
+   ppPxMapDragged = true;
+   try { map.setPointerCapture(e.pointerId); } catch {} // จับนิ้วเฉพาะตอนลากจริง แตะหมุดเฉย ๆ ยังกดได้
+  }
+  if (!ppPxMapDragged) return;
+  ppPxMapView.x = start.x + dx; ppPxMapView.y = start.y + dy;
+  ppPxMapApply();
+ });
+ const end = e => { pts.delete(e.pointerId); if (!pts.size) start = null; else if (start) { const v = [...pts.values()][0]; start = { x: ppPxMapView.x, y: ppPxMapView.y, px: v.x, py: v.y, z: ppPxMapView.z, d: 0 }; } };
+ map.addEventListener('pointerup', end);
+ map.addEventListener('pointercancel', end);
+ map.addEventListener('wheel', e => {
+  e.preventDefault();
+  const r = map.getBoundingClientRect();
+  ppPxMapZoom(e.deltaY < 0 ? 1.15 : 1 / 1.15, e.clientX - r.left, e.clientY - r.top);
+ }, { passive: false });
+ if (ppPxMapView.x == null) {
+  const me = ppPx().myLoc ? ppPxMapPos(ppPx().myLoc) : { x: 50, y: 50 };
+  ppPxMapCenterOn(me.x, me.y);
+ } else ppPxMapApply();
+}
 function renderPxMap() {
  const body = document.getElementById('pp-pxmap-body');
  if (!body) return;
  const p = ppPx();
  const places = ppPxPlaces();
  const pins = places.map(pl => {
-  const h = ppPxHash(pl.name);
-  const x = 8 + (h % 84), y = 10 + ((h >>> 8) % 76);
+  const { x, y } = ppPxMapPos(pl.name);
   const c = pl.cid && pl.cid !== 'me' ? findContact(pl.cid) : null;
   const face = pl.cid === 'me' ? `<span class="pp-px-pin me">${esc(getUserDisplayName()[0] || '?')}</span>`
    : c ? `<span class="pp-px-pin av">${contactAvatarHTML(c, 26)}</span>` : `<span class="pp-px-pin">${ICON.pin2}</span>`;
   return `<button class="pp-px-mappin" style="left:${x}%;top:${y}%" data-px="map-pin" data-name="${esc(pl.name)}">${face}<span class="pp-px-mappin-lb">${esc(pl.name.slice(0, 18))}</span></button>`;
  }).join('');
- const seed = ppPxHash(getUserDisplayName());
- const roads = Array.from({ length: 7 }, (_, i) => {
-  const a = (seed >>> (i * 3)) % 100, b = (seed >>> (i * 2 + 5)) % 100;
-  return i % 2 ? `<line x1="0" y1="${a}" x2="100" y2="${b}"/>` : `<line x1="${a}" y1="0" x2="${b}" y2="100"/>`;
- }).join('');
  const people = ppPxPeopleLocs();
  body.innerHTML = `
-  <div class="pp-px-map">
-   <svg class="pp-px-map-roads" viewBox="0 0 100 100" preserveAspectRatio="none">${roads}<circle cx="${20 + seed % 60}" cy="${30 + (seed >>> 4) % 40}" r="9" class="park"/><path d="M0 ${60 + seed % 25} Q 40 ${50 + (seed >>> 3) % 30} 100 ${55 + (seed >>> 6) % 30}" class="river"/></svg>
-   ${pins || '<div class="pp-px-map-empty">ยังไม่มีสถานที่ · ส่งตำแหน่งในแชทหรือให้ตัวละครแชร์ตำแหน่งมา</div>'}
+  <div class="pp-px-map" id="pp-px-map">
+   <div class="pp-px-map-world" id="pp-px-map-world">
+    ${ppPxMapWorldSVG()}
+    ${pins}
+   </div>
+   ${pins ? '' : '<div class="pp-px-map-empty">ยังไม่มีสถานที่ · ส่งตำแหน่งในแชทหรือให้ตัวละครแชร์ตำแหน่งมา</div>'}
+   <div class="pp-px-map-ctrl">
+    <button data-px="map-zin" title="ซูมเข้า">${ICON.plus}</button>
+    <button data-px="map-zout" title="ซูมออก">${ICON.minus}</button>
+    <button data-px="map-home" title="ไปที่ตำแหน่งของฉัน">${ICON.pin2}</button>
+   </div>
+   <div class="pp-px-map-hint">ลากเพื่อเลื่อน · ถ่างนิ้วหรือหมุนล้อเมาส์เพื่อซูม</div>
   </div>
   <div class="pp-sec-label">ฉัน</div>
   <div class="pp-card">
@@ -30971,6 +31174,7 @@ function renderPxMap() {
   ${people.length ? `<div class="pp-card">${people.map(x => `<div class="pp-cell" data-px="map-person" data-cid="${esc(x.cid)}">
     <span class="pp-cell-lb" style="gap:10px">${contactAvatarHTML(findContact(x.cid), 30)}<span><b>${esc(cname(x.cid))}</b><br><span style="font-size:12px;color:var(--pp-txt3)">${esc(x.place)}</span></span></span>
     <span style="font-size:12px;color:var(--pp-txt3)">${esc(ppPxAgo(x.ts))}</span></div>`).join('')}</div>` : '<div class="pp-hint">ยังไม่มีใครแชร์ตำแหน่ง</div>'}`;
+ ppPxMapBind();
 }
 
 // ══════════════════════════════════════════════════════════
@@ -31089,6 +31293,7 @@ Object.assign(PP_TYPE_ALIAS, {
  phone_state: ['phone_state', 'battery', 'device', 'device_state', 'signal'],
  delivery: ['delivery', 'food_delivery', 'parcel', 'package', 'send_delivery'],
 });
+PP_KW_DEFAULT.life = 'อีเมล,เมล,จดหมาย,นัด,ปฏิทิน,พรุ่งนี้,วันเกิด,รูป,ถ่าย,เซลฟี่,ตำแหน่ง,อยู่ที่ไหน,สั่ง,ส่งของ,ไรเดอร์,แบต,สัญญาณ,ชาร์จ,ฝากข้อความ,email,photo,selfie,deliver,battery';
 PP_MOD_TYPES.life = ['email', 'calendar', 'photo', 'place', 'phone_state', 'delivery'];
 ['email', 'photo', 'place', 'delivery'].forEach(t => { if (!PP_SENDER_TYPES.includes(t)) PP_SENDER_TYPES.push(t); });
 BRIDGE_MOD_META.push({ key: 'life', label: 'ชีวิตจริงในมือถือ', group: 'events', hint: 'อีเมล · ปฏิทินนัดหมาย · รูปถ่ายจากตัวละคร · ตำแหน่งสด · ส่งของมาให้ · แบต/สัญญาณจากในเรื่อง · ฝากข้อความเสียง' });
@@ -31356,6 +31561,7 @@ async function ppPxClick(e) {
  e.stopPropagation();
  switch (a) {
   case 'charge-on': ppPxSetCharging(true); return;
+  case 'era-pick': ppEraSet(el.dataset.id); return renderSetPage();
   case 'close-phone': try { ppClose(); } catch {} return;
   case 'cal-prev': ppPxCalMonth = new Date(ppPxCalMonth.getFullYear(), ppPxCalMonth.getMonth() - 1, 1); return renderPxCal();
   case 'cal-next': ppPxCalMonth = new Date(ppPxCalMonth.getFullYear(), ppPxCalMonth.getMonth() + 1, 1); return renderPxCal();
@@ -31377,10 +31583,16 @@ async function ppPxClick(e) {
   case 'ph-tab': ppPxPhotoTab = el.dataset.t; return renderPxPhotos();
   case 'ph-open': return ppPxPhotoOpen(+el.dataset.i);
   case 'map-me': return ppPrompt('ตอนนี้อยู่ที่ไหน', p.myLoc, v => { p.myLoc = String(v || '').trim().slice(0, 80); saveCfg(); if (p.shareLoc && p.myLoc) ppLog('phone', `${getUserDisplayName()} อัปเดตตำแหน่งที่แชร์: ${p.myLoc}`); renderPxMap(); }, { rows: 1 });
-  case 'map-pin': { const pl = ppPxPlaces().find(x => x.name === el.dataset.name); if (pl) ppToast(`${pl.name}${pl.who ? ' · ' + pl.who : ''}${pl.ts ? ' · ' + ppPxAgo(pl.ts) : ''}`); return; }
+  case 'map-zin': return ppPxMapZoom(1.35);
+  case 'map-zout': return ppPxMapZoom(1 / 1.35);
+  case 'map-home': { const me = ppPx().myLoc ? ppPxMapPos(ppPx().myLoc) : { x: 50, y: 50 }; if (!ppPx().myLoc) ppToast('ยังไม่ได้ตั้งตำแหน่งของคุณ'); return ppPxMapCenterOn(me.x, me.y); }
+  case 'map-pin': { if (ppPxMapDragged) { ppPxMapDragged = false; return; } const pl = ppPxPlaces().find(x => x.name === el.dataset.name); if (pl) ppToast(`${pl.name}${pl.who ? ' · ' + pl.who : ''}${pl.ts ? ' · ' + ppPxAgo(pl.ts) : ''}`); return; }
   case 'map-person': {
    const cid = el.dataset.cid;
+   const loc = ppPxPeopleLocs().find(x => x.cid === cid);
+   if (loc) { const pos = ppPxMapPos(loc.place); ppPxMapCenterOn(pos.x, pos.y); }
    return ppSheet(cname(cid), [
+    { label: 'ดูบนแผนที่', icon: ICON.map, onClick: () => { const m = document.getElementById('pp-px-map'); if (m) m.scrollIntoView({ block: 'center', behavior: 'smooth' }); } },
     { label: 'เปิดแชท', icon: ICON.messages, onClick: () => ppOpenThread(cid) },
     { label: p.myLoc ? `ส่งตำแหน่งของฉัน (${p.myLoc})` : 'ส่งตำแหน่งของฉัน', icon: ICON.pin2, onClick: () => {
      if (!p.myLoc) { ppToast('ตั้งตำแหน่งของคุณก่อน'); return; }
@@ -31406,6 +31618,7 @@ function ppPxChange(e) {
   saveCfg();
   if (key === 'pxBattSim' || key === 'pxBattCanDie') { if (!t.checked) { ppPxBatt().dead = false; } ppPxApplyStatus(); ppPxOnline(); }
   if (key === 'pxTodayWidget') updateHomeWidgets();
+  if (key === 'eraHideApps') ppEraApply();
   return;
  }
  if (t.id === 'pp-px-battspeed') { ppPxBattTick(); getCfg().pxBattSpeed = t.value; saveCfg(); return; }
@@ -31438,12 +31651,66 @@ function ppPxInit() {
  ppPx();
  ppPxWasOffline = ppPxOffline();
  ppPxApplyStatus();
+ ppEraApply(); // ★ [2.51.0]
  if (!ppPxTimer) ppPxTimer = setInterval(ppPxTick, 20000);
  ppPxTick();
 }
 
 const PP_PX_CSS = `
 #pp-sb-batt{display:inline-flex;align-items:center;gap:3px;}
+/* ★ [2.51.0] ป๊อปอัพทุกอัน: พื้นหลังเบลอจริง และตัวกล่องทึบพอให้อ่านออก ไม่ซ้อนตัวหนังสือข้างหลัง */
+#pp-frame{--pp-pop-bg:rgba(30,30,34,.9);--pp-pop-bd:rgba(255,255,255,.1);}
+#pp-frame.light{--pp-pop-bg:rgba(250,250,252,.94);--pp-pop-bd:rgba(0,0,0,.08);}
+#pp-frame .pp-ov{background:rgba(0,0,0,.42);backdrop-filter:blur(16px) saturate(1.25);-webkit-backdrop-filter:blur(16px) saturate(1.25);}
+#pp-frame .pp-dlg,#pp-frame .pp-sheet{background:var(--pp-pop-bg) !important;border:.5px solid var(--pp-pop-bd) !important;
+ backdrop-filter:blur(40px) saturate(1.8) !important;-webkit-backdrop-filter:blur(40px) saturate(1.8) !important;}
+#pp-frame #pp-toast{background:var(--pp-pop-bg) !important;color:var(--pp-txt) !important;border:.5px solid var(--pp-pop-bd);
+ backdrop-filter:blur(30px) saturate(1.6) !important;-webkit-backdrop-filter:blur(30px) saturate(1.6) !important;}
+#pp-frame .pp-px-viewer{background:var(--pp-pop-bg);border:.5px solid var(--pp-pop-bd);}
+/* ★ [2.51.0] พื้นหลังแชทตรึงกับจอ ไม่เลื่อน ไม่ซูมตามข้อความ */
+#pp-scr-chat{isolation:isolate;}
+#pp-chat-bgl{position:absolute;inset:0;z-index:-1;pointer-events:none;background-repeat:no-repeat;background-position:center;background-size:cover;}
+#pp-chat-bgl.gx-bg-mesh{background-image:radial-gradient(circle at 20% 20%, color-mix(in srgb, var(--pp-accent) 22%, transparent), transparent 55%),
+ radial-gradient(circle at 80% 80%, color-mix(in srgb, var(--pp-accent) 16%, transparent), transparent 55%),
+ radial-gradient(circle at 50% 50%, rgba(255,255,255,.05), transparent 60%);
+ background-size:180% 180%, 180% 180%, 160% 160%;animation:pp-gx-mesh 18s ease-in-out infinite;}
+#pp-frame.pp-lowpower #pp-chat-bgl.gx-bg-mesh{animation:none;}
+#pp-scr-chat.has-chatbg #pp-chat-bgl::after{content:'';position:absolute;inset:0;background:var(--pp-chatbg) center/cover no-repeat;opacity:calc(1 - var(--pp-chatbg-dim,0));}
+#pp-scr-chat.has-chatbg .pp-msgs::before{content:none !important;display:none !important;}
+#pp-scr-chat .pp-msgs{background-image:none;}
+/* ★ [2.51.0] ตัวเลขโทเคนเมื่อเปิดคีย์เวิร์ด */
+.pp-kwstat{display:grid;grid-template-columns:repeat(4,1fr);gap:6px;margin:10px 0 6px;}
+.pp-kwstat div{display:flex;flex-direction:column;align-items:center;gap:2px;padding:8px 4px;border-radius:12px;background:var(--pp-fill3);}
+.pp-kwstat b{font-size:15px;font-variant-numeric:tabular-nums;color:var(--pp-txt);}
+.pp-kwstat span{font-size:10px;color:var(--pp-txt3);text-align:center;line-height:1.3;}
+.pp-kwstat .save b{color:#30d158;}
+.pp-kwbar{height:6px;border-radius:3px;background:var(--pp-fill3);overflow:hidden;margin-bottom:6px;}
+.pp-kwbar i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#30d158,#ffd60a);}
+/* ★ [2.51.0] แผนที่ลากได้ ซูมได้ */
+.pp-px-map{position:relative;height:380px;border-radius:20px;overflow:hidden;margin-bottom:6px;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none;
+ background:#dfe6ea;box-shadow:inset 0 0 0 .5px var(--pp-sep);}
+#pp-frame:not(.light) .pp-px-map{background:#131920;}
+.pp-px-map:active{cursor:grabbing;}
+.pp-px-map-world{position:absolute;left:0;top:0;width:960px;height:960px;transform-origin:0 0;will-change:transform;
+ background:radial-gradient(30% 25% at 70% 30%,rgba(48,209,88,.14),transparent 70%),linear-gradient(160deg,#eef2ea,#e1e8ee);}
+#pp-frame:not(.light) .pp-px-map-world{background:radial-gradient(30% 25% at 70% 30%,rgba(48,209,88,.1),transparent 70%),linear-gradient(160deg,#1b2427,#131a22);}
+.pp-px-map-roads,.pp-px-map-labels{position:absolute;inset:0;width:100%;height:100%;pointer-events:none;}
+.pp-px-map-roads .blk{fill:rgba(0,0,0,.07);}
+#pp-frame:not(.light) .pp-px-map-roads .blk{fill:rgba(255,255,255,.05);}
+.pp-px-map-roads .park{fill:rgba(48,209,88,.3);}
+.pp-px-map-roads .river{fill:none;stroke:rgba(10,132,255,.5);stroke-width:12;stroke-linecap:round;vector-effect:non-scaling-stroke;}
+.pp-px-map-roads .rd{stroke:#fff;stroke-width:3;vector-effect:non-scaling-stroke;}
+#pp-frame:not(.light) .pp-px-map-roads .rd{stroke:rgba(255,255,255,.14);}
+.pp-px-map-roads .rd.main{stroke:#ffd98a;stroke-width:6;}
+#pp-frame:not(.light) .pp-px-map-roads .rd.main{stroke:rgba(255,200,90,.35);}
+.pp-px-map-labels .dist{font-size:1.35px;font-weight:700;fill:rgba(0,0,0,.35);letter-spacing:.1px;}
+#pp-frame:not(.light) .pp-px-map-labels .dist{fill:rgba(255,255,255,.3);}
+.pp-px-map-empty{position:absolute;inset:auto 16px 40px;font-size:12px;color:var(--pp-txt3);text-align:center;z-index:3;}
+.pp-px-map-ctrl{position:absolute;right:10px;top:10px;display:flex;flex-direction:column;gap:6px;z-index:3;}
+.pp-px-map-ctrl button{width:38px;height:38px;border-radius:12px;border:.5px solid var(--pp-pop-bd);background:var(--pp-pop-bg);color:var(--pp-accent);
+ backdrop-filter:blur(20px);-webkit-backdrop-filter:blur(20px);box-shadow:0 2px 10px rgba(0,0,0,.25);display:flex;align-items:center;justify-content:center;cursor:pointer;}
+.pp-px-map-ctrl button svg{width:18px;height:18px;}
+.pp-px-map-hint{position:absolute;left:10px;bottom:8px;font-size:10.5px;padding:3px 8px;border-radius:9px;background:rgba(0,0,0,.45);color:#fff;pointer-events:none;z-index:3;}
 #pp-cc .pp-px-cc3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
 .pp-px-lockn-mute svg{width:11px;height:11px;margin-right:4px;vertical-align:-1px;color:#bf5af2;}
 .pp-px-item-ic svg{width:20px;height:20px;}
@@ -31542,15 +31809,6 @@ const PP_PX_CSS = `
 .pp-px-viewer img{max-width:100%;max-height:52vh;border-radius:14px;}
 .pp-px-viewer-cap{font-size:14px;color:var(--pp-txt);text-align:center;}
 .pp-px-viewer-meta{font-size:12px;color:var(--pp-txt3);}
-.pp-px-map{position:relative;height:300px;border-radius:20px;overflow:hidden;margin-bottom:6px;
- background:radial-gradient(60% 50% at 70% 30%,rgba(48,209,88,.18),transparent 70%),linear-gradient(160deg,#e9efe6,#dfe7ee);}
-#pp-frame:not(.light) .pp-px-map{background:radial-gradient(60% 50% at 70% 30%,rgba(48,209,88,.14),transparent 70%),linear-gradient(160deg,#1f2a2c,#161c24);}
-.pp-px-map-roads{position:absolute;inset:0;width:100%;height:100%;}
-.pp-px-map-roads line{stroke:rgba(255,255,255,.85);stroke-width:1.6;vector-effect:non-scaling-stroke;}
-#pp-frame:not(.light) .pp-px-map-roads line{stroke:rgba(255,255,255,.16);}
-.pp-px-map-roads .park{fill:rgba(48,209,88,.28);}
-.pp-px-map-roads .river{fill:none;stroke:rgba(10,132,255,.45);stroke-width:5;vector-effect:non-scaling-stroke;}
-.pp-px-map-empty{position:absolute;inset:auto 16px 16px;font-size:12px;color:var(--pp-txt3);text-align:center;}
 .pp-px-mappin{position:absolute;transform:translate(-50%,-100%);border:none;background:none;padding:0;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;
  animation:pp-px-drop .5s both cubic-bezier(.3,1.5,.5,1);}
 @keyframes pp-px-drop{from{opacity:0;transform:translate(-50%,-160%)}to{opacity:1;transform:translate(-50%,-100%)}}
@@ -31577,6 +31835,498 @@ const PP_PX_CSS = `
 @media (prefers-reduced-motion: reduce){ .pp-px-lockn,.pp-px-mappin,.pp-px-pin.me,#pp-px-dead{animation:none !important;} }
 `;
 console.log(`[pocket-phone] ${PP_VERSION} ท่อน 5/5 พร้อม - ชีวิตจริงในมือถือ`);
+
+// ══════════════════════════════════════════════════════════
+// pocket-phone/index.js — 2.51.0 — ท่อน 6 (ยุคของเครื่อง)
+// ★ [2.51.0] เปลี่ยนมือถือทั้งเครื่องเป็นยุคอื่น ตั้งแต่ปุ่มกดจอเขียวปี 1999 จนถึงโฮโลแกรมอนาคต
+// และโลกที่ไม่มีมือถือ (กระจกเวทมนตร์ ทองเหลืองไอน้ำ หยกโบราณ)
+// แต่ละยุคมี: สี ฟอนต์ วอลเปเปอร์ ทรงไอคอน ฟองแชท แถบบน ขอบเครื่อง เอฟเฟกต์ และคำอธิบายให้บอทรู้
+// ยุค "ปัจจุบัน" = หน้าตาเดิมทุกอย่าง (iGlassOS / ชุดสี / ตกแต่ง) ไม่ถูกแตะเลย
+// ══════════════════════════════════════════════════════════
+
+Object.assign(DEFAULTS, {
+ phoneEra: 'modern',  // ยุคของเครื่อง
+ eraTellBot: true,    // บอกบอทว่ามือถือในเรื่องเป็นยุคไหน
+ eraHideApps: true,   // ซ่อนแอพที่ยุคนั้นยังไม่มี
+});
+
+const PP_ERA_ALL_APPS = null; // null = แสดงทุกแอพ
+const PP_ERAS = [
+ { id: 'modern', name: 'ปัจจุบัน', year: '2020s', sub: 'หน้าตาเดิมของเครื่อง ใช้ iGlassOS และชุดสีที่ตั้งไว้',
+   pv: { bez: '#1a1a1a', scr: 'linear-gradient(160deg,#1c1c2e,#0a0a12)', bar: 'rgba(255,255,255,.08)', bin: '#3a3a3c', bout: '#0a84ff', ink: '#fff' } },
+ { id: 'mono', name: 'ปุ่มกดจอเขียว', year: '1999', sub: 'จอขาวดำพื้นเขียว ตัวหนังสือพิกเซล ส่ง SMS กับโทรได้อย่างเดียว',
+   font: 'VT323', fontCss: 'VT323', fx: 'pixel',
+   apps: ['messages', 'calllog', 'pxcal', 'pet', 'settings', 'helper'],
+   bot: 'a late-1990s keypad mobile phone with a tiny monochrome green screen. It can only send short SMS text messages and make calls — no internet, no photos, no social media, no email. People text in short bursts with abbreviations because every SMS costs money.',
+   pv: { bez: '#3a3d42', scr: '#9bbc0f', bar: '#8bac0f', bin: '#8bac0f', bout: '#306230', ink: '#0f380f' } },
+ { id: 'flip', name: 'ฝาพับจอสี Y2K', year: '2004', sub: 'เครื่องเงินเงา จอสีฟ้า ไอคอนมันวาว มีกล้องกับเพลง MP3',
+   font: 'Itim', fontCss: 'Itim',
+   apps: ['messages', 'calllog', 'pxcal', 'pxphotos', 'music', 'pet', 'wallet', 'settings', 'helper'],
+   bot: 'a mid-2000s colour flip phone with a small camera and an MP3 player. SMS and picture messages, calls, low-resolution photos, ringtones. No social media apps and no smartphone features.',
+   pv: { bez: '#c9ced6', scr: 'linear-gradient(180deg,#1e5bd8,#6ec3ff)', bar: 'linear-gradient(#5aa9ff,#1b5fd6)', bin: '#ffffff', bout: '#ff3ca0', ink: '#fff' } },
+ { id: 'qwerty', name: 'คีย์บอร์ด QWERTY', year: '2008', sub: 'ดำเงาขอบโครเมียม แชทแบบ BBM อีเมลติดตัว แผนที่',
+   font: 'Sarabun', fontCss: 'Sarabun:wght@400;600;700',
+   apps: ['messages', 'calllog', 'pxmail', 'pxcal', 'pxmap', 'pxphotos', 'music', 'board', 'wallet', 'settings', 'helper'],
+   bot: 'a late-2000s smartphone with a physical QWERTY keyboard: instant messenger with read receipts, push email, a basic web browser and maps. No big social media feeds yet.',
+   pv: { bez: '#0a0a0a', scr: '#11151b', bar: 'linear-gradient(#3b4b61,#1c2533)', bin: '#e9eef5', bout: '#2e7bd6', ink: '#e8eef7' } },
+ { id: 'skeuo', name: 'สมาร์ทโฟนยุคแรก', year: '2010', sub: 'แถบฟ้าไล่เฉด พื้นผ้าลินิน ไอคอนมันวาว ฟองแชทนูน',
+   font: 'Sarabun', fontCss: 'Sarabun:wght@400;600;700', light: true,
+   bot: 'an early-2010s smartphone with a glossy skeuomorphic interface: apps, messaging, photos and the first social media apps.',
+   pv: { bez: '#111', scr: 'repeating-linear-gradient(90deg,#c5ccd4 0 5px,#cbd2d8 5px 7px)', bar: 'linear-gradient(#b0bccd,#6d83a1)', bin: '#ffffff', bout: '#1f7ae0', ink: '#000' } },
+ { id: 'metro', name: 'ไทล์สี่เหลี่ยม', year: '2012', sub: 'ดำสนิท ไทล์สีเต็มช่อง ตัวหนังสือบาง ไม่มีมุมโค้ง',
+   font: 'Kanit', fontCss: 'Kanit:wght@300;400;600',
+   bot: 'a 2012-era tile-interface smartphone.',
+   pv: { bez: '#111', scr: '#000', bar: '#000', bin: '#333', bout: '#1ba1e2', ink: '#fff' } },
+ { id: 'holo', name: 'แอนดรอยด์โฮโล', year: '2012', sub: 'เทาดำ เส้นฟ้าบาง ไอคอนลอยไม่มีพื้น',
+   font: 'Sarabun', fontCss: 'Sarabun:wght@300;400;600',
+   bot: 'a 2012-era Android smartphone.',
+   pv: { bez: '#1a1a1a', scr: '#111', bar: '#222', bin: '#2b2b2b', bout: '#0099cc', ink: '#fff' } },
+ { id: 'y2k', name: 'ลูกกวาดโปร่งแสง', year: 'Y2K', sub: 'พลาสติกใสสีบลูเบอร์รี่ ปุ่มอควาเงาวับ ลายเส้นแคนดี้',
+   font: 'Mitr', fontCss: 'Mitr:wght@300;400;500', light: true,
+   bot: 'a playful translucent candy-coloured Y2K-era gadget.',
+   pv: { bez: 'rgba(40,140,255,.7)', scr: 'linear-gradient(180deg,#e9fbff,#bfeaff)', bar: 'linear-gradient(#bfe8ff,#3aa6f0)', bin: '#ffffff', bout: '#ff8a00', ink: '#0a2a3a' } },
+ { id: 'cyber', name: 'ไซเบอร์พังก์', year: '2077', sub: 'นีออนชมพูฟ้า เส้นสแกน มุมตัด ตัวเลขกระตุก',
+   font: 'Chakra Petch', fontCss: 'Chakra+Petch:wght@400;600;700', fx: 'scan',
+   bot: 'a cyberpunk 2077-era neural-linked phone: neon interface, encrypted chats, street slang, corporate surveillance.',
+   pv: { bez: '#ff2bd6', scr: '#07060d', bar: 'rgba(10,8,20,.9)', bin: '#0d1a24', bout: '#2a0626', ink: '#e8f7ff' } },
+ { id: 'hologram', name: 'โฮโลแกรม', year: 'อนาคต', sub: 'จอลอยกลางอากาศ แสงฟ้าเรือง ภาพสั่นไหวเบา ๆ',
+   font: 'Chakra Petch', fontCss: 'Chakra+Petch:wght@400;600;700', fx: 'holo',
+   bot: 'a far-future holographic communicator projected in the air above the wrist.',
+   pv: { bez: 'rgba(120,255,255,.6)', scr: 'radial-gradient(circle,rgba(0,200,255,.25),rgba(0,20,40,.85))', bar: 'rgba(0,255,255,.1)', bin: 'rgba(0,255,255,.15)', bout: 'rgba(0,180,255,.45)', ink: '#bff7ff' } },
+ { id: 'fantasy', name: 'กระจกเวทมนตร์', year: 'แฟนตาซี', sub: 'กรอบทองสลักลาย กระดาษหนัง ตัวอักษรคัดลายมือ ประกายเวท',
+   font: 'Noto Serif Thai', fontCss: 'Noto+Serif+Thai:wght@400;600;700', fx: 'sparkle',
+   bot: 'an enchanted scrying mirror used to send messages in a fantasy world. Describe texting, calls and payments in in-world magical terms (words sent through the mirror, voices through the crystal, gold coins). Never mention modern technology, phones, apps or the internet in prose.',
+   pv: { bez: '#c9a04a', scr: 'radial-gradient(circle,#fbf1d6,#e8d3a4)', bar: 'linear-gradient(#5b3a1a,#3a2410)', bin: '#fff8e6', bout: '#6b1f2a', ink: '#3b2a14' } },
+ { id: 'steam', name: 'ทองเหลืองไอน้ำ', year: 'วิกตอเรียน', sub: 'กรอบทองเหลืองหมุดย้ำ กระดาษซีเปีย เฟือง ตัวอักษรคลาสสิก',
+   font: 'Noto Serif Thai', fontCss: 'Noto+Serif+Thai:wght@400;600;700', fx: 'sepia',
+   bot: 'a Victorian steampunk brass telegraph-telephone. Messages are telegrams, calls go through a brass receiver. Use period-appropriate language and never mention modern technology.',
+   pv: { bez: '#a37a2c', scr: 'linear-gradient(#efe0bf,#d9c08e)', bar: 'linear-gradient(#d6b25e,#8c6a2a)', bin: '#fff5dc', bout: '#8a4b1e', ink: '#3a2a18' } },
+ { id: 'jade', name: 'หยกโบราณ', year: 'ย้อนยุคตะวันออก', sub: 'หยกเขียวขอบทอง กระดาษสา ภูเขาหมึกจีน ตราประทับแดง',
+   font: 'Noto Serif Thai', fontCss: 'Noto+Serif+Thai:wght@400;600;700', fx: 'mist',
+   bot: 'an ancient eastern jade talisman that carries written messages and voices between people. Use historical, in-world wording and never mention modern technology.',
+   pv: { bez: '#2f7d5b', scr: 'linear-gradient(#f4efe2,#e6dcc4)', bar: 'linear-gradient(#2f7d5b,#1d5a40)', bin: '#fffcf2', bout: '#2f7d5b', ink: '#1f2a22' } },
+];
+function ppEra() {
+ const id = getCfg().phoneEra || 'modern';
+ return PP_ERAS.find(e => e.id === id) || PP_ERAS[0];
+}
+
+/** สร้าง CSS ของยุคจากค่าตั้งต้น — ทุกกฎผูกกับ #pp-frame.pp-era-<id> จึงไม่รั่วไปยุคอื่น */
+function ppEraRule(id, o) {
+ const F = `#pp-frame.pp-era-${id}.pp-era-${id}`;
+ const r = [];
+ r.push(`${F}{${o.vars || ''}font-family:${o.family} !important;background:${o.screen} !important;box-shadow:${o.bezel} !important;border-radius:${o.radius || '40px'} !important;color:var(--pp-txt);}`);
+ r.push(`@media (max-width:440px){${F}{box-shadow:none !important;border-radius:0 !important;}}`);
+ r.push(`${F} *{font-family:inherit !important;}`);
+ if (o.wp) r.push(`${F} #pp-home-wp{background:${o.wp} !important;background-size:cover !important;filter:none !important;}`);
+ if (o.home) r.push(`${F} #pp-home{${o.home}}`);
+ if (o.clock) r.push(`${F} .pp-home-clock{${o.clock}}`);
+ if (o.homeText) r.push(`${F} #pp-home-date,${F} #pp-home .pp-label{${o.homeText}}`);
+ if (o.icon) r.push(`${F} .pp-icon{${o.icon}}`);
+ r.push(`${F} .pp-icon::after{${o.iconAfter || 'display:none !important;'}}`);
+ if (o.iconSvg) r.push(`${F} .pp-icon > svg{${o.iconSvg}}`);
+ if (o.label) r.push(`${F} .pp-label{${o.label}}`);
+ if (o.bar) r.push(`${F} .pp-nav,${F} .pp-chat-header,${F} .pp-tabs{${o.bar}}`);
+ if (o.barText) r.push(`${F} .pp-nav-title,${F} .pp-chat-hdr-name,${F} .pp-nav .pp-nav-action,${F} .pp-nav .pp-nav-back,${F} .pp-chat-header .pp-nav-action,${F} .pp-chat-header .pp-nav-back{${o.barText}}`);
+ if (o.body) r.push(`${F} .pp-screen:not(#pp-home):not(#pp-scr-call):not(#pp-scr-callend){background:${o.body} !important;}`);
+ if (o.lt) r.push(`${F} .pp-lt{${o.lt}}`);
+ if (o.card) r.push(`${F} .pp-card,${F} .pp-widget,${F} #pp-px-today,${F} .pp-px-item,${F} .pp-kwstat div{${o.card}}`);
+ if (o.btn) r.push(`${F} .pp-btn{${o.btn}}`);
+ if (o.btnP) r.push(`${F} .pp-btn.primary,${F} .pp-gen,${F} .pp-seg button.on{${o.btnP}}`);
+ if (o.input) r.push(`${F} .pp-inputbar{${o.inputbar || ''}} ${F} .pp-input,${F} .pp-input-line,${F} .pp-search{${o.input}}`);
+ if (o.bin) r.push(`${F} .pp-brow.in .pp-bubble{${o.bin}}`);
+ if (o.bout) r.push(`${F} .pp-brow.out .pp-bubble{${o.bout}}`);
+ if (o.dock) r.push(`${F} #pp-dock{${o.dock}}`);
+ if (o.island) r.push(`${F} #pp-island{${o.island}}`);
+ if (o.extra) r.push(o.extra.replace(/F\b/g, F));
+ return r.join('\n');
+}
+const PP_ERA_CSS = [
+ ppEraRule('mono', {
+  family: `'VT323','Sarabun',monospace`, radius: '18px',
+  vars: '--pp-txt:#0f380f;--pp-txt2:#1e4a1e;--pp-txt3:#306230;--pp-accent:#306230 !important;--pp-fill1:rgba(15,56,15,.35);--pp-fill2:rgba(15,56,15,.18);--pp-fill3:rgba(15,56,15,.1);--pp-sep:#306230;--pp-sep2:#306230;--pp-card:#8bac0f;--pp-glass:#8bac0f;--pp-glass2:#9bbc0f;--pp-sheet:#8bac0f;--pp-pop-bg:#8bac0f;--pp-pop-bd:#0f380f;--pp-bub-in:#8bac0f;',
+  screen: '#9bbc0f', bezel: '0 0 0 14px #3a3d42,0 0 0 16px #1d1f22,0 0 0 26px #4d5157,0 0 0 28px #25272b,0 40px 90px rgba(0,0,0,.8)',
+  wp: 'repeating-linear-gradient(0deg,rgba(15,56,15,.06) 0 2px,transparent 2px 4px),#9bbc0f',
+  clock: 'color:#0f380f !important;text-shadow:none !important;font-weight:400 !important;letter-spacing:2px !important;font-size:96px !important;',
+  homeText: 'color:#0f380f !important;text-shadow:none !important;',
+  icon: 'background:#8bac0f !important;border:2px solid #0f380f !important;border-radius:3px !important;box-shadow:3px 3px 0 #306230 !important;backdrop-filter:none !important;color:#0f380f !important;',
+  label: 'font-size:15px !important;',
+  bar: 'background:#8bac0f !important;border-bottom:2px solid #0f380f !important;backdrop-filter:none !important;box-shadow:none !important;',
+  barText: 'color:#0f380f !important;',
+  body: '#9bbc0f', card: 'background:#8bac0f !important;border:2px solid #306230 !important;border-radius:3px !important;box-shadow:none !important;backdrop-filter:none !important;',
+  btn: 'background:#8bac0f !important;color:#0f380f !important;border:2px solid #0f380f !important;border-radius:3px !important;box-shadow:none !important;',
+  btnP: 'background:#306230 !important;color:#9bbc0f !important;border-radius:3px !important;box-shadow:none !important;',
+  input: 'background:#9bbc0f !important;border:2px solid #0f380f !important;border-radius:3px !important;color:#0f380f !important;',
+  inputbar: 'background:#8bac0f !important;border-top:2px solid #0f380f !important;backdrop-filter:none !important;',
+  bin: 'background:#8bac0f !important;color:#0f380f !important;border:2px solid #0f380f !important;border-radius:3px !important;box-shadow:none !important;backdrop-filter:none !important;font-size:18px !important;',
+  bout: 'background:#306230 !important;background-image:none !important;color:#9bbc0f !important;border-radius:3px !important;box-shadow:none !important;font-size:18px !important;',
+  island: 'background:#0f380f !important;border-radius:4px !important;',
+  extra: `F #pp-statusbar{color:#0f380f !important;} F .pp-sb-right svg{color:#0f380f !important;}
+F .pp-switch span{background:#8bac0f !important;border:2px solid #0f380f;border-radius:3px !important;} F .pp-switch span::before{background:#0f380f !important;border-radius:1px !important;box-shadow:none !important;}
+F .pp-switch input:checked + span{background:#306230 !important;} F .pp-switch input:checked + span::before{background:#9bbc0f !important;}
+F .pp-avatar{border-radius:3px !important;filter:grayscale(1) sepia(1) hue-rotate(40deg) saturate(2.5) brightness(.8) contrast(1.2);}`,
+ }),
+ ppEraRule('flip', {
+  family: `'Itim','Sarabun',sans-serif`, radius: '26px',
+  vars: '--pp-txt:#0b1a33;--pp-txt2:#27406b;--pp-txt3:#5a78a8;--pp-accent:#ff3ca0 !important;--pp-fill1:rgba(30,90,200,.3);--pp-fill2:rgba(30,90,200,.14);--pp-fill3:rgba(30,90,200,.08);--pp-sep:rgba(30,90,200,.2);--pp-sep2:#9cc3ff;--pp-card:#fff;--pp-glass:rgba(255,255,255,.85);--pp-glass2:#fff;--pp-sheet:#f3f8ff;--pp-pop-bg:rgba(243,248,255,.97);--pp-pop-bd:#9cc3ff;--pp-bub-in:#fff;',
+  screen: 'linear-gradient(180deg,#1e5bd8,#6ec3ff)',
+  bezel: '0 0 0 10px #d9dde3,0 0 0 12px #8d939c,0 0 0 17px #eef0f3,0 0 0 19px #a4a9b1,0 30px 80px rgba(0,0,0,.7)',
+  wp: 'radial-gradient(circle at 20% 80%,rgba(255,255,255,.35) 0 8%,transparent 9%),radial-gradient(circle at 75% 30%,rgba(255,255,255,.25) 0 6%,transparent 7%),radial-gradient(circle at 60% 70%,rgba(255,255,255,.2) 0 4%,transparent 5%),linear-gradient(180deg,#1e5bd8,#6ec3ff 70%,#bfe7ff)',
+  clock: 'color:#fff !important;text-shadow:0 2px 0 #0b3aa0,0 0 18px rgba(255,255,255,.6) !important;font-weight:400 !important;',
+  homeText: 'color:#fff !important;text-shadow:0 1px 2px rgba(0,30,90,.7) !important;',
+  icon: 'background-color:currentColor !important;background-image:linear-gradient(180deg,rgba(255,255,255,.75),rgba(255,255,255,.1) 50%,rgba(0,0,0,.12)) !important;border:2px solid rgba(255,255,255,.85) !important;border-radius:18px !important;box-shadow:0 3px 8px rgba(0,40,120,.45) !important;backdrop-filter:none !important;',
+  iconSvg: 'color:#fff !important;filter:drop-shadow(0 1px 1px rgba(0,0,0,.4));',
+  bar: 'background:linear-gradient(180deg,#8cc6ff 0%,#3a8af0 50%,#1b5fd6 51%,#3f86ea 100%) !important;border-bottom:1px solid #0b3aa0 !important;backdrop-filter:none !important;',
+  barText: 'color:#fff !important;text-shadow:0 1px 1px rgba(0,0,0,.4);',
+  body: 'linear-gradient(180deg,#eaf4ff,#cfe4ff)',
+  card: 'background:#fff !important;border:1px solid #9cc3ff !important;border-radius:12px !important;box-shadow:0 2px 0 #c9defb !important;backdrop-filter:none !important;',
+  btn: 'background:linear-gradient(#fff,#dbe9ff) !important;border:1px solid #9cc3ff !important;color:#0b3aa0 !important;border-radius:16px !important;',
+  btnP: 'background:linear-gradient(#ff9ad3,#ff3ca0 55%,#e0288a) !important;color:#fff !important;border-radius:16px !important;',
+  input: 'background:#fff !important;border:1px solid #9cc3ff !important;color:#0b1a33 !important;',
+  inputbar: 'background:linear-gradient(#dcebff,#b9d6ff) !important;border-top:1px solid #7fb0f5 !important;',
+  bin: 'background:linear-gradient(#fff,#eef5ff) !important;color:#0b1a33 !important;border:1px solid #9cc3ff !important;border-radius:16px !important;',
+  bout: 'background:linear-gradient(#ff9ad3,#ff3ca0 55%,#e0288a) !important;background-image:linear-gradient(#ff9ad3,#ff3ca0 55%,#e0288a) !important;color:#fff !important;border-radius:16px !important;box-shadow:inset 0 1px 0 rgba(255,255,255,.6),0 2px 4px rgba(200,0,100,.3) !important;',
+  extra: `F #pp-home .pp-widget,F #pp-home #pp-px-today{background:rgba(255,255,255,.3) !important;border:1px solid rgba(255,255,255,.6) !important;color:#fff !important;}
+F #pp-home .pp-widget *,F #pp-home #pp-px-today *{color:#fff !important;}`,
+ }),
+ ppEraRule('qwerty', {
+  family: `'Sarabun',sans-serif`, radius: '20px',
+  vars: '--pp-txt:#e8eef7;--pp-txt2:#b9c6d8;--pp-txt3:#7f8ea5;--pp-accent:#3a8ee6 !important;--pp-fill1:rgba(120,150,190,.35);--pp-fill2:rgba(120,150,190,.2);--pp-fill3:rgba(120,150,190,.12);--pp-sep:#2b3544;--pp-sep2:#2b3544;--pp-card:#1a2029;--pp-glass:#1c2533;--pp-glass2:#232d3d;--pp-sheet:#1a2029;--pp-pop-bg:rgba(26,32,41,.97);--pp-pop-bd:#3b4b61;--pp-bub-in:#e9eef5;',
+  screen: '#0d0f12',
+  bezel: '0 0 0 8px #0a0a0a,0 0 0 10px #9aa3ad,0 0 0 11px #d8dde2,0 0 0 16px #111,0 30px 80px rgba(0,0,0,.8)',
+  wp: 'radial-gradient(120% 80% at 50% 0%,#1e3a66,#0b1422 60%,#05080d)',
+  icon: 'background:linear-gradient(180deg,#3a4556,#151b24) !important;border:1px solid #4b5a70 !important;border-radius:12px !important;box-shadow:inset 0 1px 0 rgba(255,255,255,.25),0 2px 6px rgba(0,0,0,.6) !important;backdrop-filter:none !important;',
+  bar: 'background:linear-gradient(180deg,#3b4b61,#1c2533) !important;border-bottom:1px solid #000 !important;backdrop-filter:none !important;',
+  barText: 'color:#e8eef7 !important;',
+  body: '#11151b', card: 'background:#1a2029 !important;border:1px solid #2b3544 !important;border-radius:6px !important;backdrop-filter:none !important;',
+  btn: 'background:linear-gradient(#2b3544,#1a2029) !important;border:1px solid #3b4b61 !important;border-radius:6px !important;color:#e8eef7 !important;',
+  btnP: 'background:linear-gradient(#5aa6f5,#2e7bd6) !important;color:#fff !important;border-radius:6px !important;',
+  input: 'background:#0d1117 !important;border:1px solid #3b4b61 !important;border-radius:6px !important;color:#e8eef7 !important;',
+  inputbar: 'background:#1c2533 !important;border-top:1px solid #000 !important;',
+  bin: 'background:#e9eef5 !important;color:#0b1320 !important;border-radius:8px !important;border:1px solid #c5cfdb !important;',
+  bout: 'background:#2e7bd6 !important;background-image:none !important;color:#fff !important;border-radius:8px !important;',
+ }),
+ ppEraRule('skeuo', {
+  family: `'Sarabun','Helvetica Neue',sans-serif`, radius: '40px',
+  vars: '--pp-txt:#111;--pp-txt2:#333;--pp-txt3:#6d6d72;--pp-accent:#1f7ae0 !important;--pp-fill1:rgba(0,0,0,.2);--pp-fill2:rgba(0,0,0,.08);--pp-fill3:rgba(0,0,0,.05);--pp-sep:#c8c7cc;--pp-sep2:#aab;--pp-card:#fff;--pp-glass:#f7f7f7;--pp-glass2:#fff;--pp-sheet:#f2f2f5;--pp-pop-bg:rgba(242,242,245,.97);--pp-pop-bd:#8e8e93;--pp-bub-in:#e5e5ea;',
+  screen: '#000',
+  bezel: '0 0 0 12px #111,0 0 0 13px #8a8f96,0 0 0 15px #cfd3d8,0 0 0 16px #6a6f76,0 30px 80px rgba(0,0,0,.8)',
+  wp: 'radial-gradient(80% 60% at 50% 30%,#2d6fb8,#0f2d57 60%,#050c18)',
+  clock: 'font-weight:300 !important;text-shadow:0 2px 6px rgba(0,0,0,.6) !important;',
+  homeText: 'color:#fff !important;text-shadow:0 1px 3px rgba(0,0,0,.9) !important;',
+  icon: 'background-color:currentColor !important;background-image:linear-gradient(180deg,rgba(255,255,255,.35),rgba(0,0,0,.18)) !important;border:none !important;border-radius:22% !important;box-shadow:0 2px 4px rgba(0,0,0,.7) !important;backdrop-filter:none !important;',
+  iconAfter: 'content:"" !important;display:block !important;position:absolute !important;inset:0 0 50% 0 !important;border-radius:22% 22% 50% 50% / 22% 22% 18% 18% !important;background:linear-gradient(180deg,rgba(255,255,255,.6),rgba(255,255,255,.12)) !important;',
+  iconSvg: 'color:#fff !important;filter:drop-shadow(0 -1px 0 rgba(0,0,0,.35));',
+  bar: 'background:linear-gradient(180deg,#b0bccd,#8c9db4 50%,#6d83a1) !important;border-bottom:1px solid #2d3642 !important;box-shadow:inset 0 1px 0 rgba(255,255,255,.5) !important;backdrop-filter:none !important;',
+  barText: 'color:#fff !important;text-shadow:0 -1px 0 rgba(0,0,0,.5);',
+  body: 'repeating-linear-gradient(90deg,#c5ccd4 0 5px,#cbd2d8 5px 7px)',
+  lt: 'color:#4c566c !important;text-shadow:0 1px 0 #fff;',
+  card: 'background:#fff !important;border:1px solid #aab !important;border-radius:10px !important;box-shadow:0 1px 0 #fff !important;backdrop-filter:none !important;',
+  btn: 'background:linear-gradient(#fdfdfd,#d9d9d9) !important;border:1px solid #a0a0a0 !important;border-radius:8px !important;color:#111 !important;box-shadow:inset 0 1px 0 #fff !important;',
+  btnP: 'background:linear-gradient(#7fb8f7,#2f86e6 50%,#1f6fd0) !important;border:1px solid #1a5fb4 !important;color:#fff !important;border-radius:8px !important;text-shadow:0 -1px 0 rgba(0,0,0,.3);',
+  input: 'background:#fff !important;border:1px solid #9a9a9a !important;border-radius:14px !important;box-shadow:inset 0 1px 2px rgba(0,0,0,.25) !important;color:#111 !important;',
+  inputbar: 'background:linear-gradient(#e7eaee,#c9ced6) !important;border-top:1px solid #8e949c !important;',
+  bin: 'background:linear-gradient(#fdfdfd,#e1e1e6) !important;color:#111 !important;border:1px solid #b8b8be !important;border-radius:16px !important;box-shadow:0 1px 1px rgba(0,0,0,.2) !important;',
+  bout: 'background:linear-gradient(#7cc0ff,#1f7ae0) !important;background-image:linear-gradient(#7cc0ff,#1f7ae0) !important;color:#fff !important;border-radius:16px !important;border:1px solid #1b63bb !important;box-shadow:inset 0 1px 0 rgba(255,255,255,.5),0 1px 1px rgba(0,0,0,.2) !important;',
+  dock: 'background:linear-gradient(180deg,rgba(255,255,255,.3),rgba(255,255,255,.08)) !important;border-top:1px solid rgba(255,255,255,.5) !important;border-radius:0 !important;',
+ }),
+ ppEraRule('metro', {
+  family: `'Kanit','Segoe UI',sans-serif`, radius: '12px',
+  vars: '--pp-txt:#fff;--pp-txt2:#ddd;--pp-txt3:#999;--pp-accent:#1ba1e2 !important;--pp-fill1:#555;--pp-fill2:#333;--pp-fill3:#1f1f1f;--pp-sep:#333;--pp-sep2:#333;--pp-card:#000;--pp-glass:#000;--pp-glass2:#1f1f1f;--pp-sheet:#1f1f1f;--pp-pop-bg:#1f1f1f;--pp-pop-bd:#1ba1e2;--pp-bub-in:#333;',
+  screen: '#000', bezel: '0 0 0 10px #111,0 0 0 12px #2a2a2a,0 30px 80px rgba(0,0,0,.8)',
+  wp: '#000',
+  clock: 'font-weight:300 !important;text-shadow:none !important;letter-spacing:-2px !important;',
+  icon: 'background-color:currentColor !important;background-image:none !important;border:none !important;border-radius:0 !important;box-shadow:none !important;backdrop-filter:none !important;width:100% !important;height:auto !important;aspect-ratio:1 !important;',
+  iconSvg: 'color:#fff !important;filter:none !important;',
+  label: 'position:absolute !important;left:6px !important;bottom:5px !important;font-size:11px !important;color:#fff !important;text-shadow:none !important;font-weight:400 !important;opacity:1 !important;',
+  bar: 'background:#000 !important;border-bottom:none !important;backdrop-filter:none !important;',
+  barText: 'color:#fff !important;text-transform:lowercase;',
+  body: '#000', lt: 'font-weight:300 !important;font-size:40px !important;text-transform:lowercase;letter-spacing:-1px;',
+  card: 'background:transparent !important;border:none !important;border-bottom:1px solid #333 !important;border-radius:0 !important;box-shadow:none !important;backdrop-filter:none !important;',
+  btn: 'background:transparent !important;border:2px solid #fff !important;border-radius:0 !important;color:#fff !important;box-shadow:none !important;',
+  btnP: 'background:#1ba1e2 !important;border:2px solid #1ba1e2 !important;color:#fff !important;border-radius:0 !important;box-shadow:none !important;',
+  input: 'background:#fff !important;color:#000 !important;border:none !important;border-radius:0 !important;',
+  inputbar: 'background:#1f1f1f !important;border-top:none !important;',
+  bin: 'background:#333 !important;color:#fff !important;border-radius:0 !important;box-shadow:none !important;',
+  bout: 'background:#1ba1e2 !important;background-image:none !important;color:#fff !important;border-radius:0 !important;box-shadow:none !important;',
+  extra: `F .pp-grid{gap:6px !important;padding:16px 12px 8px !important;} F .pp-app{position:relative !important;gap:0 !important;display:block !important;}
+F .pp-app:nth-child(3n+1) .pp-icon{filter:brightness(.92);} F .pp-app:nth-child(4n+2) .pp-icon{filter:brightness(1.08);}
+F .pp-widget,F #pp-px-today{background:#1ba1e2 !important;border:none !important;border-radius:0 !important;}`,
+ }),
+ ppEraRule('holo', {
+  family: `'Sarabun','Roboto',sans-serif`, radius: '30px',
+  vars: '--pp-txt:#fff;--pp-txt2:#ccc;--pp-txt3:#9a9a9a;--pp-accent:#33b5e5 !important;--pp-fill1:#444;--pp-fill2:#2a2a2a;--pp-fill3:#1f1f1f;--pp-sep:#2a2a2a;--pp-sep2:#2a2a2a;--pp-card:#1b1b1b;--pp-glass:#222;--pp-glass2:#2a2a2a;--pp-sheet:#1b1b1b;--pp-pop-bg:rgba(27,27,27,.98);--pp-pop-bd:#33b5e5;--pp-bub-in:#2b2b2b;',
+  screen: '#111', bezel: '0 0 0 10px #1a1a1a,0 0 0 11px #3a3a3a,0 0 0 14px #121212,0 30px 80px rgba(0,0,0,.8)',
+  wp: 'linear-gradient(160deg,#0b2233,#111 55%,#0a0a0a)',
+  clock: 'font-weight:300 !important;color:#33b5e5 !important;text-shadow:none !important;',
+  icon: 'background:transparent !important;border:none !important;box-shadow:none !important;backdrop-filter:none !important;',
+  iconSvg: 'width:40px !important;height:40px !important;filter:drop-shadow(0 2px 3px rgba(0,0,0,.6));',
+  bar: 'background:#222 !important;border-bottom:2px solid #33b5e5 !important;backdrop-filter:none !important;',
+  barText: 'color:#fff !important;',
+  body: '#111', card: 'background:#1b1b1b !important;border:none !important;border-bottom:1px solid #2a2a2a !important;border-radius:2px !important;backdrop-filter:none !important;',
+  btn: 'background:#2a2a2a !important;border-radius:2px !important;color:#fff !important;',
+  btnP: 'background:#33b5e5 !important;color:#fff !important;border-radius:2px !important;',
+  input: 'background:transparent !important;border:none !important;border-bottom:2px solid #33b5e5 !important;border-radius:0 !important;color:#fff !important;',
+  inputbar: 'background:#1b1b1b !important;',
+  bin: 'background:#2b2b2b !important;color:#fff !important;border-radius:2px !important;',
+  bout: 'background:#0099cc !important;background-image:none !important;color:#fff !important;border-radius:2px !important;',
+ }),
+ ppEraRule('y2k', {
+  family: `'Mitr',sans-serif`, radius: '46px',
+  vars: '--pp-txt:#0a2a3a;--pp-txt2:#1f4f66;--pp-txt3:#4f84a0;--pp-accent:#ff8a00 !important;--pp-fill1:rgba(0,120,200,.3);--pp-fill2:rgba(0,120,200,.14);--pp-fill3:rgba(0,120,200,.08);--pp-sep:rgba(0,120,200,.2);--pp-sep2:rgba(0,120,200,.3);--pp-card:rgba(255,255,255,.7);--pp-glass:rgba(255,255,255,.75);--pp-glass2:#fff;--pp-sheet:rgba(240,251,255,.96);--pp-pop-bg:rgba(240,251,255,.97);--pp-pop-bd:rgba(0,120,200,.4);--pp-bub-in:#fff;',
+  screen: 'linear-gradient(180deg,#e9fbff,#bfeaff)',
+  bezel: '0 0 0 12px rgba(40,140,255,.55),0 0 0 14px rgba(255,255,255,.7),0 0 0 22px rgba(40,140,255,.35),0 0 60px rgba(40,160,255,.5),0 30px 80px rgba(0,0,0,.6)',
+  wp: 'repeating-linear-gradient(0deg,rgba(255,255,255,.35) 0 2px,transparent 2px 5px),linear-gradient(180deg,#3aa0ff,#9be2ff)',
+  clock: 'color:#fff !important;text-shadow:0 3px 0 #1a78d8,0 6px 18px rgba(0,60,140,.5) !important;font-weight:500 !important;',
+  homeText: 'color:#fff !important;text-shadow:0 1px 2px rgba(0,60,140,.8) !important;',
+  icon: 'background-color:currentColor !important;background-image:radial-gradient(90% 60% at 50% 0%,rgba(255,255,255,.9),rgba(255,255,255,0) 60%),linear-gradient(180deg,rgba(255,255,255,.15),rgba(0,0,0,.15)) !important;border:none !important;border-radius:40% !important;box-shadow:inset 0 -4px 8px rgba(0,0,0,.2),0 4px 10px rgba(0,80,180,.4) !important;opacity:.92;backdrop-filter:none !important;',
+  iconSvg: 'color:#fff !important;',
+  bar: 'background:linear-gradient(180deg,#e6f7ff 0%,#9fd9ff 49%,#5bb8f5 50%,#b3e6ff 100%) !important;border-bottom:1px solid #3a9ae8 !important;backdrop-filter:none !important;',
+  barText: 'color:#0a4a7a !important;',
+  body: 'linear-gradient(180deg,#f2fcff,#d4f1ff)',
+  card: 'background:rgba(255,255,255,.72) !important;border:1px solid rgba(0,120,200,.25) !important;border-radius:20px !important;box-shadow:inset 0 1px 0 #fff,0 3px 10px rgba(0,100,200,.12) !important;',
+  btn: 'background:linear-gradient(180deg,#fff 0%,#dff4ff 49%,#bfe6ff 50%,#e6f7ff 100%) !important;border:1px solid #6cb8ec !important;border-radius:999px !important;color:#0a4a7a !important;',
+  btnP: 'background:linear-gradient(180deg,#ffd29a 0%,#ffa640 49%,#ff8a00 50%,#ffc070 100%) !important;border:1px solid #d66f00 !important;border-radius:999px !important;color:#fff !important;',
+  input: 'background:#fff !important;border:1px solid #6cb8ec !important;border-radius:999px !important;color:#0a2a3a !important;',
+  inputbar: 'background:rgba(255,255,255,.7) !important;',
+  bin: 'background:linear-gradient(180deg,#fff,#e8f7ff) !important;color:#0a2a3a !important;border:1px solid #9fd2f3 !important;border-radius:20px !important;',
+  bout: 'background:linear-gradient(180deg,#ffc57a 0%,#ff9a1f 50%,#ff8a00 100%) !important;background-image:linear-gradient(180deg,#ffc57a 0%,#ff9a1f 50%,#ff8a00 100%) !important;color:#fff !important;border-radius:20px !important;box-shadow:inset 0 1px 0 rgba(255,255,255,.7) !important;',
+ }),
+ ppEraRule('cyber', {
+  family: `'Chakra Petch',monospace`, radius: '8px',
+  vars: '--pp-txt:#e8f7ff;--pp-txt2:#b8cbe8;--pp-txt3:#7a86a8;--pp-accent:#ff2bd6 !important;--pp-fill1:rgba(0,240,255,.3);--pp-fill2:rgba(0,240,255,.14);--pp-fill3:rgba(0,240,255,.07);--pp-sep:rgba(0,240,255,.25);--pp-sep2:rgba(0,240,255,.35);--pp-card:#0d0b18;--pp-glass:rgba(10,8,20,.92);--pp-glass2:#120f22;--pp-sheet:#0d0b18;--pp-pop-bg:rgba(13,11,24,.97);--pp-pop-bd:#00f0ff;--pp-bub-in:#0d1a24;',
+  screen: '#07060d',
+  bezel: '0 0 0 8px #111,0 0 0 9px #ff2bd6,0 0 0 12px #07060d,0 0 0 13px #00f0ff,0 0 40px rgba(255,43,214,.55),0 30px 80px rgba(0,0,0,.8)',
+  wp: 'linear-gradient(180deg,transparent 55%,rgba(255,43,214,.25) 55.4%,transparent 56%),repeating-linear-gradient(90deg,rgba(0,240,255,.15) 0 1px,transparent 1px 36px),repeating-linear-gradient(0deg,rgba(0,240,255,.1) 0 1px,transparent 1px 36px),radial-gradient(90% 60% at 50% 55%,#3a0a4a,#07060d 70%)',
+  clock: 'color:#e8f7ff !important;text-shadow:3px 0 #ff2bd6,-3px 0 #00f0ff,0 0 24px rgba(255,43,214,.6) !important;font-weight:700 !important;letter-spacing:0 !important;animation:pp-era-glitch 4s infinite steps(1);',
+  homeText: 'color:#00f0ff !important;text-shadow:0 0 8px rgba(0,240,255,.7) !important;text-transform:uppercase;',
+  icon: 'background:#07060d !important;border:1px solid currentColor !important;border-radius:6px !important;box-shadow:0 0 12px currentColor,inset 0 0 10px rgba(255,255,255,.05) !important;backdrop-filter:none !important;clip-path:polygon(0 0,80% 0,100% 20%,100% 100%,20% 100%,0 80%);',
+  iconSvg: 'filter:drop-shadow(0 0 4px currentColor) !important;',
+  bar: 'background:rgba(10,8,20,.94) !important;border-bottom:1px solid #00f0ff !important;box-shadow:0 0 14px rgba(0,240,255,.35) !important;backdrop-filter:none !important;',
+  barText: 'color:#00f0ff !important;text-transform:uppercase;letter-spacing:1px;',
+  body: 'linear-gradient(180deg,#07060d,#0c0718)',
+  card: 'background:#0d0b18 !important;border:1px solid rgba(0,240,255,.35) !important;border-radius:0 !important;clip-path:polygon(0 0,calc(100% - 14px) 0,100% 14px,100% 100%,14px 100%,0 calc(100% - 14px));backdrop-filter:none !important;',
+  btn: 'background:transparent !important;border:1px solid #ff2bd6 !important;color:#ff2bd6 !important;border-radius:0 !important;text-transform:uppercase;',
+  btnP: 'background:#ff2bd6 !important;color:#07060d !important;border-radius:0 !important;box-shadow:0 0 16px rgba(255,43,214,.7) !important;',
+  input: 'background:#07060d !important;border:1px solid #00f0ff !important;border-radius:0 !important;color:#e8f7ff !important;',
+  inputbar: 'background:rgba(10,8,20,.96) !important;border-top:1px solid #ff2bd6 !important;',
+  bin: 'background:#0d1a24 !important;color:#bffaff !important;border:1px solid #00f0ff !important;border-radius:0 !important;clip-path:polygon(0 0,100% 0,100% calc(100% - 10px),calc(100% - 10px) 100%,0 100%);box-shadow:none !important;',
+  bout: 'background:#2a0626 !important;background-image:none !important;color:#ffd6f7 !important;border:1px solid #ff2bd6 !important;border-radius:0 !important;clip-path:polygon(10px 0,100% 0,100% 100%,0 100%,0 10px);box-shadow:none !important;',
+  island: 'border:1px solid #ff2bd6 !important;box-shadow:0 0 12px rgba(255,43,214,.6) !important;',
+ }),
+ ppEraRule('hologram', {
+  family: `'Chakra Petch',sans-serif`, radius: '34px',
+  vars: '--pp-txt:#bff7ff;--pp-txt2:#8fe9ff;--pp-txt3:#5fb8cc;--pp-accent:#5ff !important;--pp-fill1:rgba(120,255,255,.3);--pp-fill2:rgba(120,255,255,.14);--pp-fill3:rgba(120,255,255,.07);--pp-sep:rgba(120,255,255,.25);--pp-sep2:rgba(120,255,255,.35);--pp-card:rgba(0,255,255,.06);--pp-glass:rgba(0,40,60,.55);--pp-glass2:rgba(0,60,80,.6);--pp-sheet:rgba(0,30,45,.92);--pp-pop-bg:rgba(0,30,45,.94);--pp-pop-bd:rgba(120,255,255,.6);--pp-bub-in:rgba(0,255,255,.1);',
+  screen: 'radial-gradient(120% 90% at 50% 40%,rgba(0,200,255,.22),rgba(0,20,40,.82) 70%)',
+  bezel: '0 0 0 1px rgba(120,255,255,.7),0 0 18px rgba(0,255,255,.6),0 0 60px rgba(0,200,255,.35),inset 0 0 40px rgba(0,255,255,.18)',
+  wp: 'repeating-linear-gradient(0deg,rgba(120,255,255,.06) 0 1px,transparent 1px 4px),radial-gradient(60% 40% at 50% 60%,rgba(0,255,255,.18),transparent 70%)',
+  clock: 'color:#dfffff !important;text-shadow:0 0 12px #0ff,0 0 30px rgba(0,255,255,.6) !important;font-weight:400 !important;',
+  homeText: 'color:#bff7ff !important;text-shadow:0 0 8px #0ff !important;',
+  icon: 'background:rgba(0,255,255,.07) !important;border:1px solid rgba(120,255,255,.6) !important;border-radius:50% !important;box-shadow:0 0 14px rgba(0,255,255,.45),inset 0 0 10px rgba(0,255,255,.25) !important;backdrop-filter:none !important;color:#9ff !important;',
+  iconSvg: 'filter:drop-shadow(0 0 6px #0ff) !important;',
+  label: 'color:#bff7ff !important;text-shadow:0 0 6px #0ff !important;',
+  bar: 'background:rgba(0,255,255,.07) !important;border-bottom:1px solid rgba(120,255,255,.5) !important;backdrop-filter:blur(6px) !important;',
+  barText: 'color:#bff7ff !important;text-shadow:0 0 6px #0ff;',
+  body: 'transparent', card: 'background:rgba(0,255,255,.06) !important;border:1px solid rgba(120,255,255,.35) !important;border-radius:14px !important;box-shadow:0 0 14px rgba(0,255,255,.15),inset 0 0 14px rgba(0,255,255,.08) !important;',
+  btn: 'background:rgba(0,255,255,.08) !important;border:1px solid rgba(120,255,255,.6) !important;color:#bff7ff !important;',
+  btnP: 'background:rgba(0,255,255,.3) !important;border:1px solid #5ff !important;color:#fff !important;box-shadow:0 0 14px rgba(0,255,255,.6) !important;',
+  input: 'background:rgba(0,255,255,.05) !important;border:1px solid rgba(120,255,255,.5) !important;color:#dfffff !important;',
+  inputbar: 'background:rgba(0,40,60,.6) !important;border-top:1px solid rgba(120,255,255,.4) !important;',
+  bin: 'background:rgba(0,255,255,.1) !important;color:#dfffff !important;border:1px solid rgba(120,255,255,.45) !important;box-shadow:0 0 10px rgba(0,255,255,.25) !important;',
+  bout: 'background:rgba(0,180,255,.35) !important;background-image:none !important;color:#fff !important;border:1px solid rgba(160,255,255,.7) !important;box-shadow:0 0 12px rgba(0,200,255,.45) !important;',
+ }),
+ ppEraRule('fantasy', {
+  family: `'Noto Serif Thai',serif`, radius: '60px',
+  vars: '--pp-txt:#3b2a14;--pp-txt2:#5a4120;--pp-txt3:#8a6a3c;--pp-accent:#8a5a12 !important;--pp-fill1:rgba(138,90,18,.35);--pp-fill2:rgba(138,90,18,.16);--pp-fill3:rgba(138,90,18,.08);--pp-sep:rgba(201,160,74,.5);--pp-sep2:#c9a04a;--pp-card:rgba(255,248,230,.75);--pp-glass:rgba(255,246,222,.9);--pp-glass2:#fff8e6;--pp-sheet:#f8ebcb;--pp-pop-bg:rgba(250,238,208,.98);--pp-pop-bd:#c9a04a;--pp-bub-in:#fff8e6;',
+  screen: 'radial-gradient(120% 90% at 50% 30%,#fbf1d6,#e8d3a4 75%,#caa86b)',
+  bezel: '0 0 0 5px #e8c46a,0 0 0 8px #6b4a1a,0 0 0 11px #c9a04a,0 0 0 13px #f6dc8a,0 0 0 17px #5a3a12,0 0 50px rgba(233,196,106,.45),0 30px 80px rgba(0,0,0,.75)',
+  wp: 'radial-gradient(circle at 78% 18%,#fff7d6 0 4%,rgba(255,240,190,.3) 5%,transparent 16%),radial-gradient(1px 1px at 20% 30%,#fff,transparent),radial-gradient(1.5px 1.5px at 60% 45%,#fff,transparent),radial-gradient(1px 1px at 35% 70%,#fff,transparent),radial-gradient(1px 1px at 85% 60%,#fff,transparent),radial-gradient(1.2px 1.2px at 12% 55%,#fff,transparent),linear-gradient(180deg,#1b1340,#3a2a6b 55%,#6b4a8a)',
+  clock: 'color:#f6dc8a !important;text-shadow:0 2px 0 #6b4a1a,0 0 22px rgba(246,220,138,.6) !important;font-weight:400 !important;letter-spacing:0 !important;',
+  homeText: 'color:#f6e7bf !important;text-shadow:0 1px 3px rgba(0,0,0,.8) !important;',
+  icon: 'background:radial-gradient(circle at 35% 30%,#fff3c4,#d4a13a 58%,#8a5a12) !important;border:2px solid #6b4a1a !important;border-radius:50% !important;box-shadow:0 0 0 2px #e8c46a,0 4px 10px rgba(0,0,0,.5) !important;backdrop-filter:none !important;color:#3b2a14 !important;',
+  label: 'color:#f6e7bf !important;text-shadow:0 1px 3px #000 !important;',
+  bar: 'background:linear-gradient(180deg,#6b4520,#3a2410) !important;border-bottom:2px solid #c9a04a !important;backdrop-filter:none !important;',
+  barText: 'color:#f5d98b !important;',
+  body: 'radial-gradient(120% 90% at 50% 20%,#fbf1d6,#ecd9ad 70%,#d9bd84)',
+  card: 'background:rgba(255,248,230,.78) !important;border:1px solid #c9a04a !important;border-radius:10px !important;box-shadow:inset 0 0 0 3px rgba(201,160,74,.18),0 2px 6px rgba(90,58,18,.2) !important;backdrop-filter:none !important;',
+  btn: 'background:linear-gradient(#fff3d0,#ead19a) !important;border:1px solid #b88a34 !important;color:#3b2a14 !important;border-radius:10px !important;',
+  btnP: 'background:linear-gradient(#f3d27a,#c9962c) !important;border:1px solid #8a5a12 !important;color:#3b2a14 !important;border-radius:10px !important;',
+  input: 'background:#fffaf0 !important;border:1px solid #c9a04a !important;color:#3b2a14 !important;',
+  inputbar: 'background:linear-gradient(#f3e3bb,#e2c890) !important;border-top:1px solid #c9a04a !important;',
+  bin: 'background:#fff8e6 !important;color:#3b2a14 !important;border:1px solid #c9a04a !important;box-shadow:0 2px 4px rgba(90,58,18,.2) !important;',
+  bout: 'background:linear-gradient(#8a2a38,#5b1520) !important;background-image:linear-gradient(#8a2a38,#5b1520) !important;color:#f8e7c0 !important;border:1px solid #c9a04a !important;',
+  island: 'background:#2a1a08 !important;border:1px solid #c9a04a !important;',
+ }),
+ ppEraRule('steam', {
+  family: `'Noto Serif Thai',serif`, radius: '30px',
+  vars: '--pp-txt:#3a2a18;--pp-txt2:#5a4128;--pp-txt3:#8a6a44;--pp-accent:#b5651d !important;--pp-fill1:rgba(140,106,42,.35);--pp-fill2:rgba(140,106,42,.16);--pp-fill3:rgba(140,106,42,.08);--pp-sep:rgba(140,106,42,.4);--pp-sep2:#8c6a2a;--pp-card:rgba(255,245,220,.65);--pp-glass:rgba(240,224,190,.92);--pp-glass2:#fff5dc;--pp-sheet:#efe0bf;--pp-pop-bg:rgba(239,224,191,.98);--pp-pop-bd:#8c6a2a;--pp-bub-in:#fff5dc;',
+  screen: 'linear-gradient(180deg,#efe0bf,#d9c08e)',
+  bezel: '0 0 0 10px #a37a2c,0 0 0 12px #5a3d12,0 0 0 16px #c89b45,0 0 0 18px #4a300c,0 30px 80px rgba(0,0,0,.75)',
+  wp: 'radial-gradient(circle at 80% 75%,transparent 0 18%,rgba(163,122,44,.55) 18.5% 20%,transparent 20.5% 26%,rgba(163,122,44,.45) 26.5% 28%,transparent 28.5%),radial-gradient(circle at 18% 28%,transparent 0 10%,rgba(163,122,44,.5) 10.5% 12%,transparent 12.5%),linear-gradient(160deg,#4a2f14,#2a1a0a 70%)',
+  clock: 'color:#f3d58a !important;text-shadow:0 2px 0 #4a300c,0 0 14px rgba(243,213,138,.4) !important;font-weight:400 !important;',
+  homeText: 'color:#f3e2b8 !important;text-shadow:0 1px 3px #000 !important;',
+  icon: 'background:radial-gradient(circle at 35% 30%,#f7e0a0,#c89b45 55%,#6b4a1a) !important;border:2px dashed #4a300c !important;border-radius:50% !important;box-shadow:0 0 0 3px #a37a2c,0 3px 8px rgba(0,0,0,.6) !important;backdrop-filter:none !important;color:#3a2a18 !important;',
+  label: 'color:#f3e2b8 !important;text-shadow:0 1px 3px #000 !important;',
+  bar: 'background:radial-gradient(circle at 10px 50%,#5a3d12 0 2px,transparent 2.5px) 0 0/22px 100% repeat-x,linear-gradient(180deg,#e2c16c,#a37a2c 55%,#7d5a1e) !important;border-bottom:2px solid #4a300c !important;backdrop-filter:none !important;',
+  barText: 'color:#2a1c0c !important;',
+  body: 'linear-gradient(180deg,#efe0bf,#dcc594)',
+  card: 'background:rgba(255,245,220,.7) !important;border:2px solid #8c6a2a !important;border-radius:6px !important;box-shadow:inset 0 0 20px rgba(140,106,42,.2) !important;backdrop-filter:none !important;',
+  btn: 'background:linear-gradient(#f0d9a0,#c89b45) !important;border:1px solid #6b4a1a !important;color:#2a1c0c !important;border-radius:6px !important;',
+  btnP: 'background:linear-gradient(#e0925a,#b5651d 55%,#7d3f0f) !important;border:1px solid #4a2408 !important;color:#fff3dc !important;border-radius:6px !important;',
+  input: 'background:#fff8e4 !important;border:1px solid #8c6a2a !important;border-radius:6px !important;color:#3a2a18 !important;',
+  inputbar: 'background:linear-gradient(#d9bd7a,#a37a2c) !important;border-top:2px solid #4a300c !important;',
+  bin: 'background:#fff5dc !important;color:#3a2a18 !important;border:1px solid #8c6a2a !important;border-radius:6px !important;',
+  bout: 'background:linear-gradient(#b5651d,#7d3f0f) !important;background-image:linear-gradient(#b5651d,#7d3f0f) !important;color:#fbe9c9 !important;border:1px solid #4a2408 !important;border-radius:6px !important;',
+ }),
+ ppEraRule('jade', {
+  family: `'Noto Serif Thai',serif`, radius: '36px',
+  vars: '--pp-txt:#1f2a22;--pp-txt2:#3b4a3f;--pp-txt3:#6b7a6c;--pp-accent:#2f7d5b !important;--pp-fill1:rgba(47,125,91,.3);--pp-fill2:rgba(47,125,91,.14);--pp-fill3:rgba(47,125,91,.07);--pp-sep:rgba(185,162,106,.5);--pp-sep2:#b9a26a;--pp-card:rgba(255,252,242,.82);--pp-glass:rgba(244,239,226,.92);--pp-glass2:#fffcf2;--pp-sheet:#f4efe2;--pp-pop-bg:rgba(244,239,226,.98);--pp-pop-bd:#b9a26a;--pp-bub-in:#fffcf2;',
+  screen: 'linear-gradient(180deg,#f4efe2,#e6dcc4)',
+  bezel: '0 0 0 8px #2f7d5b,0 0 0 10px #c9a04a,0 0 0 14px #1d5a40,0 0 0 15px #e8c46a,0 30px 80px rgba(0,0,0,.7)',
+  wp: 'radial-gradient(120% 50% at 20% 100%,rgba(40,50,45,.55),transparent 60%),radial-gradient(90% 40% at 80% 100%,rgba(40,50,45,.4),transparent 60%),radial-gradient(70% 30% at 55% 72%,rgba(60,70,65,.28),transparent 60%),radial-gradient(circle at 75% 22%,#c0392b 0 7%,transparent 7.5%),linear-gradient(180deg,#f4efe2,#e2d7bd)',
+  clock: 'color:#1f2a22 !important;text-shadow:none !important;font-weight:400 !important;',
+  homeText: 'color:#1f2a22 !important;text-shadow:0 1px 0 rgba(255,255,255,.6) !important;',
+  icon: 'background:radial-gradient(circle at 35% 30%,#b8f0d2,#2f7d5b 62%,#174d35) !important;border:none !important;border-radius:50% !important;box-shadow:0 0 0 2px #c9a04a,0 4px 10px rgba(0,0,0,.35) !important;backdrop-filter:none !important;color:#f4e3b1 !important;',
+  label: 'color:#1f2a22 !important;text-shadow:none !important;',
+  bar: 'background:linear-gradient(180deg,#2f7d5b,#1d5a40) !important;border-bottom:2px solid #c9a04a !important;backdrop-filter:none !important;',
+  barText: 'color:#f4e3b1 !important;',
+  body: 'linear-gradient(180deg,#f7f2e6,#ebe2cc)',
+  card: 'background:rgba(255,252,242,.85) !important;border:1px solid #b9a26a !important;border-radius:4px !important;box-shadow:0 2px 6px rgba(60,50,20,.15) !important;backdrop-filter:none !important;',
+  btn: 'background:#fffcf2 !important;border:1px solid #b9a26a !important;color:#1f2a22 !important;border-radius:4px !important;',
+  btnP: 'background:linear-gradient(#3d9a70,#1d5a40) !important;border:1px solid #c9a04a !important;color:#f7f1dc !important;border-radius:4px !important;',
+  input: 'background:#fffcf2 !important;border:1px solid #b9a26a !important;border-radius:4px !important;color:#1f2a22 !important;',
+  inputbar: 'background:rgba(244,239,226,.95) !important;border-top:1px solid #b9a26a !important;',
+  bin: 'background:#fffcf2 !important;color:#1f2a22 !important;border:1px solid #b9a26a !important;border-radius:4px !important;',
+  bout: 'background:linear-gradient(#3d9a70,#1d5a40) !important;background-image:linear-gradient(#3d9a70,#1d5a40) !important;color:#f7f1dc !important;border:1px solid #c9a04a !important;border-radius:4px !important;',
+  island: 'background:#1d5a40 !important;border:1px solid #c9a04a !important;',
+ }),
+].join('\n') + `
+#pp-frame[class*="pp-era-"] .pp-homedot-search{background:var(--pp-pop-bg) !important;color:var(--pp-txt) !important;border:1px solid var(--pp-pop-bd) !important;box-shadow:none !important;}
+#pp-frame[class*="pp-era-"] .pp-homedot-search svg{color:var(--pp-txt) !important;}
+/* ยุคก่อนมีติ่งจอ: ไม่มีเกาะลอย โผล่เฉพาะตอนมีแจ้งเตือน เป็นแถบแจ้งเตือนบนจอแทน */
+${['mono', 'flip', 'qwerty', 'skeuo', 'metro', 'holo', 'y2k', 'fantasy', 'steam', 'jade'].map(id => `#pp-frame.pp-era-${id} #pp-island:not(.pp-island-live)`).join(',')}{opacity:0 !important;pointer-events:none !important;}
+${['mono', 'flip', 'qwerty', 'skeuo', 'metro', 'holo', 'y2k', 'fantasy', 'steam', 'jade'].map(id => `#pp-frame.pp-era-${id} #pp-island.pp-island-live`).join(',')}{width:calc(100% - 20px) !important;border-radius:10px !important;top:6px !important;}
+#pp-frame.pp-era-mono .pp-px-snap,#pp-frame.pp-era-mono .pp-px-ph,#pp-frame.pp-era-mono .pp-img-thumb{filter:grayscale(1) sepia(1) hue-rotate(40deg) saturate(2.5) brightness(.85) contrast(1.15);}
+#pp-frame.pp-era-mono #pp-statusbar,#pp-frame.pp-era-mono .pp-sb-right{color:#0f380f !important;}
+@keyframes pp-era-glitch{0%,92%,100%{transform:none;clip-path:none}93%{transform:translateX(-3px);clip-path:inset(10% 0 55% 0)}95%{transform:translateX(3px);clip-path:inset(55% 0 10% 0)}97%{transform:translateX(-1px)}}
+#pp-era-fx{position:absolute;inset:0;pointer-events:none;z-index:96;border-radius:inherit;overflow:hidden;}
+#pp-era-fx.fx-pixel{background:repeating-linear-gradient(0deg,rgba(15,56,15,.07) 0 1px,transparent 1px 3px),repeating-linear-gradient(90deg,rgba(15,56,15,.05) 0 1px,transparent 1px 3px);}
+#pp-era-fx.fx-scan{background:repeating-linear-gradient(0deg,rgba(0,0,0,.28) 0 1px,transparent 1px 3px),radial-gradient(120% 100% at 50% 50%,transparent 60%,rgba(0,0,0,.55));}
+#pp-era-fx.fx-scan::after{content:'';position:absolute;left:0;right:0;height:60px;background:linear-gradient(180deg,transparent,rgba(0,240,255,.08),transparent);animation:pp-era-beam 6s linear infinite;}
+#pp-era-fx.fx-holo{background:repeating-linear-gradient(0deg,rgba(120,255,255,.05) 0 1px,transparent 1px 3px);animation:pp-era-flicker 5s infinite;box-shadow:inset 0 0 50px rgba(0,255,255,.25);}
+#pp-era-fx.fx-holo::after{content:'';position:absolute;left:0;right:0;height:120px;background:linear-gradient(180deg,transparent,rgba(120,255,255,.12),transparent);animation:pp-era-beam 4s linear infinite;}
+#pp-era-fx.fx-sparkle{background:radial-gradient(2px 2px at 15% 20%,rgba(255,236,160,.9),transparent),radial-gradient(1.5px 1.5px at 80% 35%,rgba(255,236,160,.8),transparent),radial-gradient(2px 2px at 40% 80%,rgba(255,236,160,.8),transparent),radial-gradient(1.5px 1.5px at 70% 70%,rgba(255,236,160,.7),transparent),radial-gradient(1px 1px at 25% 55%,rgba(255,236,160,.9),transparent);
+ background-size:100% 100%;animation:pp-era-twinkle 3.5s ease-in-out infinite alternate;box-shadow:inset 0 0 60px rgba(201,160,74,.35);}
+#pp-era-fx.fx-sepia{box-shadow:inset 0 0 80px rgba(74,48,12,.55);background:radial-gradient(120% 100% at 50% 50%,transparent 65%,rgba(60,35,10,.25));}
+#pp-era-fx.fx-mist{background:radial-gradient(80% 30% at 50% 105%,rgba(255,255,255,.55),transparent 70%);box-shadow:inset 0 0 50px rgba(185,162,106,.3);}
+@keyframes pp-era-beam{from{top:-120px}to{top:110%}}
+@keyframes pp-era-flicker{0%,100%{opacity:1}47%{opacity:1}48%{opacity:.55}49%{opacity:1}73%{opacity:.8}74%{opacity:1}}
+@keyframes pp-era-twinkle{from{opacity:.45}to{opacity:1}}
+@media (prefers-reduced-motion: reduce){#pp-era-fx,#pp-era-fx::after,#pp-frame .pp-home-clock{animation:none !important;}}
+#pp-frame.pp-lowpower #pp-era-fx,#pp-frame.pp-lowpower #pp-era-fx::after{animation:none !important;}
+.pp-era-grid{display:grid;grid-template-columns:repeat(2,1fr);gap:10px;}
+.pp-era-card{border:none;padding:10px;border-radius:18px;background:var(--pp-fill3);color:var(--pp-txt);cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:6px;position:relative;}
+.pp-era-card.on{box-shadow:0 0 0 2px var(--pp-accent);}
+.pp-era-card.on::after{content:'ใช้อยู่';position:absolute;top:8px;right:8px;font-size:10px;font-weight:700;padding:2px 7px;border-radius:8px;background:var(--pp-accent);color:#fff;}
+.pp-era-mini{height:128px;border-radius:14px;overflow:hidden;display:flex;flex-direction:column;gap:5px;padding:0 0 8px;position:relative;}
+.pp-era-mini-bar{height:18px;flex-shrink:0;}
+.pp-era-mini-b{max-width:70%;height:14px;border-radius:7px;margin:0 8px;}
+.pp-era-mini-b.o{align-self:flex-end;}
+.pp-era-mini-t{font-size:15px;font-weight:700;padding:2px 10px 0;line-height:1.2;}
+.pp-era-name{font-size:14px;font-weight:700;}
+.pp-era-year{font-size:11px;color:var(--pp-txt3);}
+.pp-era-sub{font-size:11px;color:var(--pp-txt3);line-height:1.45;}
+`;
+
+/** ทายุคลงเครื่อง — เรียกหลัง ppApplyIglass / ppApplyDeco ทุกครั้ง เพราะสองตัวนั้นใส่คลาสของมันเองกลับมา */
+function ppEraApply() {
+ try {
+  const f = document.getElementById('pp-frame');
+  if (!f) return;
+  if (!document.getElementById('pp-era-css')) {
+   const s = document.createElement('style');
+   s.id = 'pp-era-css';
+   s.textContent = PP_ERA_CSS;
+   document.head.appendChild(s);
+  }
+  const era = ppEra();
+  PP_ERAS.forEach(e => f.classList.remove('pp-era-' + e.id));
+  f.dataset.era = era.id;
+  let fx = document.getElementById('pp-era-fx');
+  let hide = document.getElementById('pp-era-hide');
+  if (era.id === 'modern') {
+   if (fx) fx.remove();
+   if (hide) hide.textContent = '';
+   return;
+  }
+  f.classList.add('pp-era-' + era.id);
+  // ยุคอื่นแทนที่หน้าตาทั้งเครื่อง — ปลด iGlassOS กับชุดสีออกชั่วคราว (ค่าที่ตั้งไว้ไม่หาย กลับยุคปัจจุบันแล้วคืนเอง)
+  f.classList.remove('pp-lg', 'pp-themed');
+  f.classList.toggle('light', !!era.light);
+  if (era.fontCss && !document.getElementById('pp-era-font-' + era.id)) {
+   const l = document.createElement('link');
+   l.id = 'pp-era-font-' + era.id;
+   l.rel = 'stylesheet';
+   l.href = `https://fonts.googleapis.com/css2?family=${era.fontCss}&display=swap`;
+   document.head.appendChild(l);
+  }
+  if (era.fx) {
+   if (!fx) { fx = document.createElement('div'); fx.id = 'pp-era-fx'; f.appendChild(fx); }
+   fx.className = 'fx-' + era.fx;
+  } else if (fx) fx.remove();
+  if (!hide) { hide = document.createElement('style'); hide.id = 'pp-era-hide'; document.head.appendChild(hide); }
+  const keep = era.apps;
+  hide.textContent = (keep && getCfg().eraHideApps !== false)
+   ? APPS.filter(a => !keep.includes(a.nav)).map(a => `#pp-frame [data-appnav="${a.nav}"],#pp-dock [data-nav="${a.nav}"]`).join(',') + '{display:none !important;}'
+   : '';
+ } catch (e) { console.warn('[pocket-phone] era', e); }
+}
+function ppEraSet(id) {
+ const cfg = getCfg();
+ const prev = ppEra();
+ cfg.phoneEra = PP_ERAS.some(e => e.id === id) ? id : 'modern';
+ saveCfg();
+ // กลับยุคปัจจุบัน: ทาหน้าตาเดิมกลับทั้งหมด
+ try { applyTheme(); ppApplyDeco(); ppApplyIglass(); } catch {}
+ ppEraApply();
+ const now = ppEra();
+ if (prev.id !== now.id) {
+  ppLog('phone', now.id === 'modern' ? `มือถือของ ${getUserDisplayName()} กลับมาเป็นสมาร์ทโฟนยุคปัจจุบัน` : `มือถือของ ${getUserDisplayName()} เป็นแบบ "${now.name}" (${now.year})`);
+  ppToast(`เปลี่ยนเป็นยุค ${now.name}`);
+ }
+}
+/** บรรทัดบอกบอทว่ามือถือในเรื่องเป็นยุคไหน — ว่างถ้าเป็นยุคปัจจุบันหรือปิดไว้ */
+function ppEraBotLine() {
+ const era = ppEra();
+ if (era.id === 'modern' || !era.bot || getCfg().eraTellBot === false) return '';
+ return `The phone in this story is ${era.bot} Keep every phone event and every description of the device consistent with this.`;
+}
+function ppEraPageHTML() {
+ const cur = ppEra().id;
+ const cfg = getCfg();
+ const card = e => `<button class="pp-era-card${e.id === cur ? ' on' : ''}" data-px="era-pick" data-id="${e.id}">
+  <div class="pp-era-mini" style="background:${e.pv.scr};box-shadow:0 0 0 4px ${e.pv.bez};color:${e.pv.ink}">
+   <div class="pp-era-mini-bar" style="background:${e.pv.bar}"></div>
+   <div class="pp-era-mini-t" style="font-family:'${e.font || 'inherit'}',serif">${esc(e.year)}</div>
+   <div class="pp-era-mini-b" style="width:62%;background:${e.pv.bin}"></div>
+   <div class="pp-era-mini-b o" style="width:48%;background:${e.pv.bout}"></div>
+   <div class="pp-era-mini-b" style="width:40%;background:${e.pv.bin}"></div>
+  </div>
+  <span class="pp-era-name">${esc(e.name)}</span>
+  <span class="pp-era-year">${esc(e.year)}</span>
+  <span class="pp-era-sub">${esc(e.sub)}</span>
+ </button>`;
+ return `
+  <div class="pp-hint">เปลี่ยนหน้าตามือถือทั้งเครื่องให้ตรงกับยุคของเรื่อง ตั้งแต่มือถือปุ่มกดจอเขียวจนถึงโฮโลแกรม และโลกที่ไม่มีมือถือ ถ้าเลือกยุคอื่นที่ไม่ใช่ปัจจุบัน iGlassOS กับชุดสีจะพักไว้ก่อน กลับมายุคปัจจุบันแล้วทุกอย่างคืนเหมือนเดิม</div>
+  <div class="pp-card" style="margin-bottom:10px">
+   <div class="pp-cell"><span class="pp-cell-lb" style="flex-direction:column;align-items:flex-start;gap:2px"><span>บอกบอทว่ามือถือเป็นยุคไหน</span><span style="font-size:11px;color:var(--pp-txt3);line-height:1.4">บอทจะเล่าเรื่องมือถือให้ตรงยุค เช่นยุคปุ่มกดส่งได้แค่ SMS ยุคแฟนตาซีเรียกว่ากระจกเวท</span></span><label class="pp-switch"><input type="checkbox" id="pp-px-eratell"${cfg.eraTellBot !== false ? ' checked' : ''}><span></span></label></div>
+   <div class="pp-cell"><span class="pp-cell-lb" style="flex-direction:column;align-items:flex-start;gap:2px"><span>ซ่อนแอพที่ยุคนั้นยังไม่มี</span><span style="font-size:11px;color:var(--pp-txt3);line-height:1.4">เช่นยุคปุ่มกดไม่มีฟีด อีเมล หรือแผนที่ ข้อมูลในแอพไม่หาย แค่ซ่อนไว้</span></span><label class="pp-switch"><input type="checkbox" id="pp-px-erahide"${cfg.eraHideApps !== false ? ' checked' : ''}><span></span></label></div>
+  </div>
+  <div class="pp-era-grid">${PP_ERAS.map(card).join('')}</div>`;
+}
+PP_SET_PAGES.push({ key: 'era', name: 'ยุคของเครื่อง', icon: ICON.clock, color: '#ff9f0a', sub: 'ปุ่มกด ฝาพับ ยุคแรก ไซเบอร์ โฮโลแกรม เวทมนตร์' });
+Object.assign(PP_PX_SWITCHES, { 'pp-px-eratell': 'eraTellBot', 'pp-px-erahide': 'eraHideApps' });
+console.log(`[pocket-phone] ${PP_VERSION} ท่อน 6 พร้อม - ยุคของเครื่อง ${PP_ERAS.length} แบบ`);
 
 // ══════════════════════════════════════════════════════════
 // BOOT
