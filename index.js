@@ -1,4 +1,8 @@
 // pocket-phone/index.js
+// ★ [2.49.0] รองรับโรลเพลย์ทุกรูปแบบ: แชทกลุ่มของ SillyTavern (ppMainCharIds = ตัวละครหลักได้หลายคน,
+// currentCharacterId() ในกลุ่ม = คนที่กำลังพูด) · ชื่อผู้ใช้ยึด Persona (userNameFollowsPersona)
+// · การ์ดชื่อซ้ำกันเลือกตัวที่อยู่ในฉากก่อนเสมอ (ppPickByScene / ppCharIdFromStMessage ใช้ avatar)
+// · กระเป๋าเงิน/echo ของกลุ่มยึด id กลุ่ม (ppSceneRouteKey) · กันบอทสร้าง NPC ปลอมเป็นตัวผู้ใช้ (ppIsUserName)
 // ★ [2.48.1] pet-assets.js ไม่ได้โหลดผ่าน manifest.json แล้ว (SillyTavern ไม่รองรับ
 // "js" เป็นอาร์เรย์หลายไฟล์ — ลองแล้วพังทั้งตัว) ไฟล์นี้หาตำแหน่งตัวเองจาก <script src>
 // ของตัวเองตอนเริ่มทำงาน (ดู ppLoadPetAssets ด้านล่าง) แล้วยิง <script> โหลด pet-assets.js
@@ -14,7 +18,7 @@
 // getContext ล้วน · ไม่มี import/export · lazy + try/catch
 // ⚠️ รันเดี่ยวไม่ได้ ต้องแปะครบ 4 ท่อน
 
-const PP_VERSION = '2.48.1';
+const PP_VERSION = '2.49.0';
 const MODULE_NAME = 'pocket-phone';
 
 // ══════════════════════════════════════════════════════════
@@ -201,6 +205,12 @@ async function ppSaveChatNow() {
 async function ppSwitchStChat(chatName) {
  const c = ctx();
  ppDetect();
+ // ★ [2.49.0] แชทกลุ่ม: ไฟล์แชทเป็นของกลุ่ม ไม่ใช่ของตัวละคร ต้องเปิดผ่าน openGroupChat
+ const gid = ppStGroupId();
+ if (gid && chatName) {
+  try { if (c && typeof c.openGroupChat === 'function') { await c.openGroupChat(gid, chatName); return true; } } catch (e) { console.warn('[pocket-phone] openGroupChat failed', e); }
+  try { if (typeof window.openGroupChat === 'function') { await window.openGroupChat(gid, chatName); return true; } } catch {}
+ }
  // ทางที่น่าจะได้: slash command /chat
  try {
  if (PP_CAP.slash && chatName) {
@@ -216,6 +226,12 @@ async function ppSwitchStChat(chatName) {
 // ดึงรายชื่อแชท (รูท) ของตัวละครปัจจุบันจาก ST — feature-detected, ต้องเทสจริง
 async function ppListStChats() {
  const c = ctx();
+ // ★ [2.49.0] แชทกลุ่ม: รายชื่อไฟล์แชทเก็บอยู่ในตัวกลุ่มเอง
+ if (ppStGroupId()) {
+  const g = ppStGroup();
+  const list = g && Array.isArray(g.chats) ? g.chats.map(String).filter(Boolean) : [];
+  return list.length ? list.slice().reverse() : null;
+ }
  try {
  let avatar = '';
  if (c && Array.isArray(c.characters) && c.characterId != null) avatar = c.characters[c.characterId]?.avatar || '';
@@ -233,7 +249,7 @@ async function ppListStChats() {
 }
 async function ppOpenRouteSwitcher() {
  const c = ppActiveContact;
- if (!c || c.id !== currentCharacterId()) { ppToast('สลับรูทได้เฉพาะแชทของตัวละครหลักที่ผูกกับ SillyTavern'); return; }
+ if (!c || !ppIsMainChar(c.id)) { ppToast('สลับรูทได้เฉพาะแชทของตัวละครหลักที่ผูกกับ SillyTavern'); return; }
  islandStatus('กำลังโหลดรายการแชท…');
  const chats = await ppListStChats();
  islandCollapse();
@@ -406,7 +422,7 @@ const DEFAULTS = {
  syncTagShow: true,   // ★ 2.47.0 โชว์ป้ายสรุปในข้อความโรลหลัก เปิดปิดได้ที่สะพานเชื่อม ไม่กินโทเคนเพิ่ม
  keyKeepTurns: 3,
  contacts: [], threads: {}, chatStyle: {}, callLog: [], pinned: [],
- userNote: null, botNotes: {}, userAppName: '', imageCaptionMode: 'ask',
+ userNote: null, botNotes: {}, userAppName: '', userNameFollowsPersona: true, imageCaptionMode: 'ask',
  stories: [], storySeen: {}, userPersonaMode: 'perchat', sharedUserPersonaId: '',
  showFab: true, feedPosts: [], periods: [], groups: [], notifCenter: [],
  ringtoneUrl: '', walletBalance: 50000, walletAccount: '', walletName: '',
@@ -892,7 +908,16 @@ function getUserName() {
 }
 function getUserDisplayName() {
  const cfg = getCfg();
- return (cfg.userAppName && cfg.userAppName.trim()) || getUserName();
+ // ★ [2.49.0] ชื่อผู้ใช้ยึด Persona ของ SillyTavern เป็นหลัก
+ // ของเดิม ชื่อที่ตั้งในแอพ (userAppName) ทับ persona เสมอ สลับ persona แล้วมือถือยังเป็นชื่อเดิม
+ // บอทเลยเรียกผิดคนและ "to" ในเฟรมไม่ตรงกับคนที่อยู่ในบทจริง
+ // ตอนนี้ persona ชนะ เว้นแต่ผู้ใช้ปิดสวิตช์เองที่หน้าแก้โปรไฟล์
+ const persona = getUserName();
+ if (cfg.userNameFollowsPersona === false) {
+  return (cfg.userAppName && cfg.userAppName.trim()) || persona;
+ }
+ if (persona && persona !== 'User') return persona;
+ return (cfg.userAppName && cfg.userAppName.trim()) || persona;
 }
 function getUserHandle() {
  const cfg = getCfg();
@@ -903,7 +928,178 @@ function dname(c) { return (c && (c.customName || c.name)) || '?'; }
 function newId() { return Date.now().toString(36) + Math.random().toString(36).slice(2, 7); }
 function newMid() { return 'm' + Date.now().toString(36) + Math.random().toString(36).slice(2, 6); }
 
+// ══════════════════════════════════════════════════════════
+// ★ [2.49.0] รู้จักแชทกลุ่มของ SillyTavern
+// ของเดิม currentCharacterId() คืน null ตลอดเมื่ออยู่ในแชทกลุ่ม (ST ตั้ง characterId เป็น
+// null แล้วไปใช้ groupId แทน) ทำให้ scope คอนแทกต์ ผูกรูท และตัวหาคนจากชื่อพังเงียบ ๆ
+// ตอนนี้แยกเป็น "ตัวละครหลักของฉาก" ที่เป็นได้หลายคนพร้อมกัน
+// ══════════════════════════════════════════════════════════
+function ppStGroupId() {
+ const c = ctx();
+ try {
+ if (c) {
+ if (c.groupId != null && c.groupId !== '') return String(c.groupId);
+ if (c.selected_group != null && c.selected_group !== '') return String(c.selected_group);
+ }
+ } catch {}
+ return null;
+}
+function ppStGroup() {
+ const c = ctx();
+ const gid = ppStGroupId();
+ if (!gid) return null;
+ try {
+ const groups = (c && (c.groups || c.group_list)) || [];
+ if (Array.isArray(groups)) return groups.find(g => g && String(g.id) === gid) || null;
+ } catch {}
+ return null;
+}
+/** ตัวละครในแชทกลุ่มที่ ST เปิดอยู่ (คืนเป็น id แบบเดียวกับ currentCharacterId) */
+function ppStGroupMemberIds() {
+ const g = ppStGroup();
+ if (!g) return [];
+ const raw = g.members || g.member_list || [];
+ if (!Array.isArray(raw)) return [];
+ const disabled = Array.isArray(g.disabled_members) ? g.disabled_members.map(String) : [];
+ const chars = listStCharacters();
+ // ★ [2.49.0] เทียบ avatar (ไม่ซ้ำกันแน่นอน) ก่อนชื่อ — การ์ดชื่อซ้ำกันจะได้ไม่ดึงผิดตัว
+ const out = raw.map(String)
+ .filter(av => !disabled.includes(av))
+ .map(av => { const hit = chars.find(x => x.id === av) || chars.find(x => x.name === av); return hit ? hit.id : av; })
+ .filter(Boolean);
+ return [...new Set(out)];
+}
+/** ตัวละครหลักของฉากตอนนี้ — แชทเดี่ยวได้ 1 ตัว แชทกลุ่มได้ทุกคนในกลุ่ม
+ * ★ [2.49.0] แคชสั้น ๆ (ผูกกับกลุ่ม/ตัวละคร/รายการการ์ดที่เปิดอยู่) เพราะถูกเรียกในลูปทุกคอนแทกต์ */
+let ppMainCharCache = null;
+function ppMainCharIds() {
+ const c0 = ctx();
+ const sig = c0 ? [ppStGroupId() || '', c0.characterId, c0.characters, (c0.characters || []).length, ppStGroup()] : null;
+ const now = Date.now();
+ if (sig && ppMainCharCache && now - ppMainCharCache.t < 400 && ppMainCharCache.sig.every((v, i) => v === sig[i])) {
+  return ppMainCharCache.ids.slice();
+ }
+ const ids = ppMainCharIdsRaw();
+ if (sig) ppMainCharCache = { t: now, sig, ids: ids.slice() };
+ return ids;
+}
+function ppMainCharIdsRaw() {
+ const gm = ppStGroupMemberIds();
+ if (gm.length) return gm;
+ const c = ctx();
+ try {
+ if (c && c.characterId != null && Array.isArray(c.characters)) {
+ const ch = c.characters[c.characterId];
+ if (ch) return [ch.avatar || ch.name];
+ }
+ } catch {}
+ return [];
+}
+function ppIsMainChar(cid) {
+ if (!cid) return false;
+ return ppMainCharIds().indexOf(cid) >= 0;
+}
+/** ★ [2.49.0] ระหว่างที่ ST เจนคำตอบในแชทกลุ่ม มันจะตั้ง characterId เป็นสมาชิกที่กำลังพูด
+ * คืน id ของคนนั้นถ้าเป็นสมาชิกกลุ่มจริง ไม่งั้นคืน null */
+function ppGroupGeneratingCharId() {
+ try {
+  const c = ctx();
+  if (!c || !ppStGroupId() || c.characterId == null || c.characterId === '' || !Array.isArray(c.characters)) return null;
+  const ch = c.characters[c.characterId];
+  const id = ch ? (ch.avatar || ch.name) : null;
+  return id && ppStGroupMemberIds().indexOf(id) >= 0 ? id : null;
+ } catch { return null; }
+}
+/** อยู่ในแชทกลุ่มของ ST อยู่หรือเปล่า */
+function ppInStGroup() { return ppStGroupMemberIds().length > 0; }
+/** คนที่พูดล่าสุดในกลุ่ม — ใช้ตัดสินว่า "ตัวละครที่กำลังเล่นอยู่" คือใคร */
+function ppLastSpeakerCharId() {
+ const c = ctx();
+ try {
+ const members = ppStGroupMemberIds();
+ if (!members.length) return null;
+ if (!c || !Array.isArray(c.chat)) return members[0];
+ const stop = Math.max(0, c.chat.length - 40);
+ for (let i = c.chat.length - 1; i >= stop; i--) {
+ const m = c.chat[i];
+ if (!m || m.is_user || m.is_system) continue;
+ // ★ [2.49.0] ระบุตัวจาก avatar ของข้อความก่อน ชื่อซ้ำกันก็ไม่ดึงผิดตัว
+ const id = ppCharIdFromStMessage(m, members);
+ if (id && members.indexOf(id) >= 0) return id;
+ }
+ return members[0];
+ } catch {}
+ return null;
+}
+/** ★ [2.49.0] ข้อความใน ST นี้เป็นของตัวละครตัวไหน (คืน id แบบ currentCharacterId)
+ * ลำดับ: original_avatar (ST ใส่ให้ทุกข้อความในแชทกลุ่ม) → force_avatar → ชื่อ
+ * เทียบชื่อจะเลือกคนในฉาก (preferIds) ก่อนเสมอ กันการ์ดชื่อซ้ำกันดึงอีกตัวมาแทน */
+function ppCharIdFromStMessage(m, preferIds) {
+ try {
+ if (!m || m.is_user) return null;
+ const chars = listStCharacters();
+ const byAv = av => {
+  if (!av) return null;
+  let f = String(av);
+  const q = f.match(/[?&]file=([^&]+)/);
+  if (q) { try { f = decodeURIComponent(q[1]); } catch { f = q[1]; } }
+  f = f.replace(/^.*\/characters\//, '').replace(/^\/+/, '');
+  const hit = chars.find(x => x.id === f);
+  return hit ? hit.id : null;
+ };
+ const a = byAv(m.original_avatar) || byAv(m.force_avatar);
+ if (a) return a;
+ if (!m.name) return null;
+ const pref = Array.isArray(preferIds) && preferIds.length ? preferIds : ppMainCharIds();
+ const same = chars.filter(x => x.name === m.name);
+ if (!same.length) return null;
+ const inScene = same.find(x => pref.indexOf(x.id) >= 0);
+ return (inScene || same[0]).id;
+ } catch { return null; }
+}
+/** ★ [2.49.0] ST โหลดการ์ดของคนนี้ให้เองตอนเจน quiet ไหม
+ * แชทเดี่ยว: ใช่ ถ้าเป็นตัวละครที่เปิดอยู่ · แชทกลุ่ม: ไม่รับประกัน (ST เลือกสมาชิกเอง) จึงต้องฉีด persona เอง */
+function ppCardAutoLoaded(cid) {
+ if (!cid || ppStGroupId()) return false;
+ return cid === currentCharacterId();
+}
+/** ★ [2.49.0] ชื่อที่ใช้แสดงของตัวละครในฉาก (ชื่อในมือถือก่อน แล้วค่อยชื่อการ์ด) */
+function ppSceneCharName(id) {
+ const c = findContact(id);
+ if (c) return dname(c);
+ const s = listStCharacters().find(x => x.id === id);
+ return s ? s.name : String(id || '?');
+}
+/** ★ [2.49.0] ตัวละครที่เป็นเจ้าของข้อความโรลหลักที่กำลังประมวลผล frame อยู่
+ * ตั้งค่าระหว่าง ppApplySyncBatch เท่านั้น ใช้ตัดสินชื่อซ้ำ / from ว่าง / from เป็นสรรพนามตัวเอง */
+let ppSyncSpeakerId = null;
+/** ความใกล้ชิดกับฉากตอนนี้ ใช้เลือกเมื่อมีคอนแทกต์ชื่อตรงกันหลายคน (ยิ่งมากยิ่งควรเลือก) */
+function ppSceneRank(c) {
+ if (!c) return 0;
+ const sp = ppSyncSpeakerId;
+ if (sp && c.id === sp) return 6;
+ if (ppIsMainChar(c.id)) return 5;
+ if (sp && (c.ownerCharId === sp || c.baseCharId === sp)) return 4;
+ const mains = ppMainCharIds();
+ if (mains.length && ((c.ownerCharId && mains.indexOf(c.ownerCharId) >= 0) || (c.baseCharId && mains.indexOf(c.baseCharId) >= 0))) return 3;
+ if (c.npc && !c.ownerCharId && !c.baseCharId) return 2;
+ return mains.length ? 1 : 2;
+}
+function ppPickByScene(list) {
+ let best = null, br = -1;
+ (list || []).forEach(c => { const r = ppSceneRank(c); if (r > br) { br = r; best = c; } });
+ return best;
+}
+
 function currentCharacterId() {
+ // ★ [2.49.0] ในแชทกลุ่ม ST ไม่มี characterId ให้ใช้ — คืนคนที่พูดล่าสุดแทน
+ // โค้ดเดิมที่ถามว่า "ตัวละครที่กำลังคุยอยู่คือใคร" จึงยังทำงานได้เหมือนแชทเดี่ยว
+ // ส่วนเรื่องขอบเขตต้องใช้ ppMainCharIds() / ppIsMainChar() ที่คืนครบทุกคน
+ if (ppStGroupId()) {
+  if (ppSyncSpeakerId && ppIsMainChar(ppSyncSpeakerId)) return ppSyncSpeakerId;
+  const gen = ppGroupGeneratingCharId();
+  return gen || ppLastSpeakerCharId();
+ }
  const c = ctx();
  try {
  if (c && c.characterId != null && Array.isArray(c.characters)) {
@@ -926,7 +1122,9 @@ function ppStChatId() {
 }
 // thread key = ผูกกับแชทของ ST ปัจจุบัน · ถ้าอ่านไม่ได้ fallback เป็น cid เดี่ยว (พฤติกรรมเดิม)
 function threadKey(cid) {
- if (cid !== currentCharacterId()) return cid; // NPC/บอทอื่น ไม่ผูกกับไฟล์แชท ST
+ // ★ [2.49.0] แชทกลุ่ม: สมาชิกทุกคนผูกกับไฟล์แชท ST เหมือนกันหมด
+ // ของเดิมเทียบกับ currentCharacterId() ตัวเดียว สมาชิกคนอื่นในกลุ่มเลยไม่ผูกรูท
+ if (!ppIsMainChar(cid)) return cid; // NPC/บอทอื่น ไม่ผูกกับไฟล์แชท ST
  const chatId = ppStChatId();
  return chatId ? `${cid}::${chatId}` : cid;
 }
@@ -936,18 +1134,19 @@ function cname(cid) { const c = findContact(cid); return c ? dname(c) : (cid || 
 // contact นี้อยู่ใน scope ของคาร์ที่เปิดอยู่ไหม
 function ppContactInScope(c) {
  if (!c) return false;
- const scope = currentCharacterId();
- if (!scope) return true; // ไม่เปิดคาร์ไหน → แสดงทั้งหมด (เหมือนเดิม)
+ // ★ [2.49.0] แชทกลุ่ม: นับสมาชิกทุกคนเป็น "ตัวละครหลัก" ไม่ใช่แค่คนที่พูดล่าสุด
+ const scopes = ppMainCharIds();
+ if (!scopes.length) return true; // ไม่เปิดคาร์ไหน → แสดงทั้งหมด (เหมือนเดิม)
  if (getCfg().ppShowAllContacts) return true; // ปุ่มแสดงทั้งหมด override
- if (c.id === scope) return true; // ตัวคาร์เอง
- if (c.baseCharId === scope) return true; // NPC สร้างเองที่อ้างอิงคาร์นี้
- if (c.ownerCharId === scope) return true; // NPC ออโต้ที่เกิดจากคาร์นี้
+ if (scopes.indexOf(c.id) >= 0) return true; // ตัวคาร์เอง (หรือสมาชิกกลุ่ม)
+ if (c.baseCharId && scopes.indexOf(c.baseCharId) >= 0) return true; // NPC สร้างเองที่อ้างอิงคาร์นี้
+ if (c.ownerCharId && scopes.indexOf(c.ownerCharId) >= 0) return true; // NPC ออโต้ที่เกิดจากคาร์นี้
  // NPC ไม่ผูกใคร: โหมดเข้ม = ซ่อน · โหมดผ่อน = โผล่ทุกคาร์ (กันของเก่าหาย)
  if (c.npc && !c.baseCharId && !c.ownerCharId) return !getCfg().strictNpcScope;
  return false;
 }
 function ppScopeActive() {
- return !!currentCharacterId() && !getCfg().ppShowAllContacts;
+ return ppMainCharIds().length > 0 && !getCfg().ppShowAllContacts;
 }
 function isPinned(id) { return (getCfg().pinned || []).includes(id); }
 function isMuted(id) { return (getCfg().mutedChats || []).includes(id); }
@@ -956,7 +1155,7 @@ function isBlocked(cid) { return (getCfg().blocked || []).includes(cid); }
 function isRestricted(cid) { return (getCfg().restricted || []).includes(cid); }
 function noteCategory(cid) {
  if (isPinned(cid)) return 'pin';
- if (cid === currentCharacterId()) return 'main';
+ if (ppIsMainChar(cid)) return 'main'; // ★ [2.49.0] รวมสมาชิกกลุ่มทุกคน
  return 'npc';
 }
 function contactCategory(c) {
@@ -1682,7 +1881,7 @@ function postAudience(p) {
  // ★ 2.9.0 ตัดตัวละครหลักออกเฉพาะโพสต์ของผู้ใช้เอง เพราะเขาอยู่ในบทอยู่แล้ว
  // เดิมตัดทุกโพสต์ ทำให้ในหน้าโปรไฟล์ NPC ไม่มีบัญชีตัวละครหลักให้เลือกคอมเมนต์เลย
  if (cfg.universeAffectsRP && ppIsMyAuthor(p && p.author)) {
-  pool = pool.filter(c => c.id !== currentCharacterId());
+  pool = pool.filter(c => !ppIsMainChar(c.id)); // ★ [2.49.0] ตัดทุกคนในกลุ่ม ไม่ใช่แค่คนเดียว
  }
  if (vis === 'none') return [];
  const accId = ppPostAccountId(p);
@@ -1705,7 +1904,7 @@ function ppAudienceWhyEmpty(p) {
  if (vis === 'none') rows.push('โพสต์นี้ตั้งไว้ว่าไม่ให้ใครเห็น · เปลี่ยนได้จากเมนูสามจุดบนโพสต์');
  if (vis === 'close' && !(cfg.closeFriends || []).length) rows.push('ตั้งเป็นเฉพาะเพื่อนสนิท แต่ยังไม่ได้เลือกใครเป็นเพื่อนสนิท');
  if (all.length && all.every(c => isBlocked(c.id) || isRestricted(c.id))) rows.push('คอนแทกต์ทุกคนถูกบล็อกหรือถูกจำกัดไว้');
- if (cfg.universeAffectsRP && all.length === 1 && all[0].id === currentCharacterId()) {
+ if (cfg.universeAffectsRP && all.length && all.every(c => ppIsMainChar(c.id))) { // ★ [2.49.0] กลุ่มอาจมีหลายคน
   rows.push('เปิดสวิตช์เชื่อมกับโรลไว้ ตัวละครที่เปิดอยู่จึงถูกตัดออก และคุณมีคอนแทกต์แค่คนเดียว');
  }
  if (Array.isArray(p && p.responders) && p.responders.length) rows.push('โพสต์นี้จำกัดคนตอบไว้เฉพาะบางคน');
@@ -1724,15 +1923,41 @@ function isCloseFriend(cid) { return (getCfg().closeFriends || []).includes(cid)
 // ★ 1.0.0 WALLET PER-ROUTE — กระเป๋าเงินแยกตามแชท ST
 // ══════════════════════════════════════════════════════════
 function walletRouteKey() {
+ return ppSceneRouteKey();
+}
+/** ★ [2.49.0] กุญแจรูทของฉากที่เปิดอยู่ ใช้ร่วมกันทั้งกระเป๋าเงินและ echo
+ * แชทกลุ่ม: ยึด id กลุ่ม เพราะ currentCharacterId() ในกลุ่มคือคนที่พูดล่าสุดซึ่งเปลี่ยนทุกเทิร์น
+ * ถ้ายึดคนพูด ยอดเงินและ echo จะสลับไปมาเองระหว่างเทิร์น
+ * ก่อน 2.49.0 แชทกลุ่มใช้กุญแจ 'global' — ppSeedGroupRoute() คัดลอกของเดิมมาให้ครั้งแรก ไม่ลบของเก่า */
+function ppSceneRouteKey() {
+ const gid = ppStGroupId();
+ const chat = ppStChatId();
+ if (gid) return chat ? `grp:${gid}::${chat}` : `grp:${gid}`;
  const cid = currentCharacterId();
  if (!cid) return 'global';
- const chat = ppStChatId();
  return chat ? `${cid}::${chat}` : String(cid);
+}
+function ppSeedGroupRoute(store, key) {
+ try {
+  if (!store || typeof store !== 'object' || !String(key).startsWith('grp:')) return false;
+  if (store[key] !== undefined) return false;
+  const old = store.global;
+  if (old === undefined || old === null) return false;
+  const cfg = getCfg();
+  if (!cfg.ppGroupRouteSeeded || typeof cfg.ppGroupRouteSeeded !== 'object') cfg.ppGroupRouteSeeded = {};
+  const mark = (store === cfg.walletRoutes ? 'w:' : 'e:') + key;
+  if (cfg.ppGroupRouteSeeded[mark]) return false;
+  cfg.ppGroupRouteSeeded[mark] = Date.now();
+  store[key] = JSON.parse(JSON.stringify(old));
+  return true;
+ } catch { return false; }
 }
 function walletRoute() {
  const cfg = getCfg();
  if (!cfg.walletPerChat) return null;
  const k = walletRouteKey();
+ if (!cfg.walletRoutes || typeof cfg.walletRoutes !== 'object') cfg.walletRoutes = {};
+ if (ppSeedGroupRoute(cfg.walletRoutes, k)) saveCfg(); // ★ [2.49.0] ยอดเงินกลุ่มเดิมไม่หาย
  if (!cfg.walletRoutes[k]) {
   cfg.walletRoutes[k] = {
    balance: Math.round(cfg.walletBalance || 0),
@@ -2039,9 +2264,11 @@ function ppMentionTargets() {
  try {
   // ★ 2.9.12 แอคหลุมต้องไม่โผล่ให้ตัวละครที่ไม่ควรรู้ว่าเป็นเรา
   // เดิม ppAccKnownBy ถูกประกาศไว้แต่ไม่มีใครเรียก ทุกบัญชีจึงถูกส่งเข้า prompt หมด
-  const me = currentCharacterId();
+  // ★ [2.49.0] แชทกลุ่ม: prompt โรลหลักถูกอ่านโดยทุกคนในฉาก แอคหลุมจึงต้องเป็นที่รู้ของ "ทุกคน"
+  // ถ้ามีสมาชิกคนไหนไม่ควรรู้ ห้ามส่งเข้า — ของเดิมดูแค่คนเดียวซึ่งในกลุ่มคืน null ตลอด = รั่วหมด
+  const mains = ppMainCharIds();
   ppAccountsOf('user').forEach(a => {
-   if (me && !ppAccKnownBy(a.id, me)) return;
+   if (mains.length && !mains.every(id => ppAccKnownBy(a.id, id))) return;
    push(ppAccHandle(a.id), ppAccName(a.id), ppAccAvatar(a.id),
     a.id === 'main' ? 'user' : 'acc:' + a.id, 'me');
   });
@@ -2360,6 +2587,16 @@ async function ppFetchLoreForContact(cid) {
  saveCfg();
  return txt;
 }
+/** ★ [2.49.0] ป้ายชื่อการ์ด ST ที่แยกได้แม้ชื่อซ้ำกัน — ต่อท้ายชื่อไฟล์การ์ด และบอกว่าตัวไหนอยู่ในฉาก */
+function ppStCharLabel(ch, all) {
+ if (!ch) return '?';
+ const list = Array.isArray(all) ? all : listStCharacters();
+ const dup = list.filter(x => x.name === ch.name).length > 1;
+ let out = ch.name;
+ if (dup) out += ` (${String(ch.id || '').replace(/\.(png|webp|jpe?g|json)$/i, '')})`;
+ if (ppIsMainChar(ch.id)) out += ' · ในฉากนี้';
+ return out;
+}
 function getContactPersona(id) { const ch = listStCharacters().find(x => x.id === id); return ch ? (ch.persona || '') : ''; }
 function getEffectivePersona(id) {
  const CAP = 1500; // กันการ์ดใหญ่ยัดเป็นหมื่นโทเคน
@@ -2577,14 +2814,15 @@ const BRIDGE_MOD_META = [
 /** ★ 1.4.0 เลือกคอนแทกต์ที่เกี่ยวข้องกับฉากนี้ — ไม่ยัดร้อยชื่อทุกเทิร์น */
 function ppRelevantContacts(limit) {
  const cap = Math.max(1, Math.min(200, limit || 12));
- const scope = currentCharacterId();
+ const scopes = ppMainCharIds(); // ★ [2.49.0] แชทกลุ่ม: ให้คะแนนสมาชิกทุกคน ไม่ลำเอียงไปคนเดียว
+ const inS = id => !!id && scopes.indexOf(id) >= 0;
  const scored = [];
  const week = Date.now() - 7 * 86400000;
  getContacts().forEach(c => {
   if (isBlocked(c.id)) return;
   let score = 0;
-  if (c.id === scope) score += 1000;
-  if (c.baseCharId === scope || c.ownerCharId === scope) score += 500;
+  if (inS(c.id)) score += 1000;
+  if (inS(c.baseCharId) || inS(c.ownerCharId)) score += 500;
   if (isPinned(c.id)) score += 300;
   const ts = lastTs(c.id);
   if (ts >= week) score += 200 + Math.round((ts - week) / 3600000);
@@ -2691,7 +2929,11 @@ function ppBuildBridgeParts(actionBody, hay) {
   let feedText = ppPromptText('feed', rows.join('\n'));
   // รายการโพสต์ที่รีได้ ต่อท้ายเฉพาะเมื่อยังไม่ได้แก้คำเอง
   if (!ppPromptIsEdited('feed')) {
-   const list = ppRepostableList(currentCharacterId() || '', 3);
+   // ★ [2.49.0] แชทกลุ่ม: รวมโพสต์ที่สมาชิกแต่ละคนรีได้ ไม่ใช่แค่คนที่พูดล่าสุด
+   const mainsR = ppMainCharIds();
+   const list = mainsR.length > 1
+    ? [...new Set([].concat(...mainsR.map(id => ppRepostableList(id, 3))))].slice(0, 6)
+    : ppRepostableList(currentCharacterId() || '', 3);
    if (list.length) feedText += `\nPosts available to repost or share — use the exact id:\n` + list.join('\n');
   }
   put('feed', feedText);
@@ -3106,7 +3348,12 @@ function ppFindStCharIndex(charId) {
   for (let i = 0; i < arr.length; i++) {
    const x = arr[i];
    if (!x) continue;
-   if (x.avatar === charId || x.name === charId) return i;
+   if (x.avatar === charId) return i;
+  }
+  // ★ [2.49.0] เทียบ avatar ให้ครบทุกตัวก่อน ค่อยถอยมาเทียบชื่อ — การ์ดชื่อซ้ำกันจะได้ไม่เขียนทับผิดใบ
+  for (let i = 0; i < arr.length; i++) {
+   const x = arr[i];
+   if (x && x.name === charId) return i;
   }
  } catch {}
  return -1;
@@ -3582,10 +3829,7 @@ function ppPromptMissingTypes(key, text) {
 /** ★ 2.4.0 กุญแจรูทของ echo — ใช้ตัวเดียวกับที่ระบบแยกประวัติแชท
  * สลับแชทใน SillyTavern แล้วแต่ละรูทจำเรื่องของตัวเอง ไม่ต้องลบอะไร */
 function ppEchoRouteKey() {
- const cid = currentCharacterId();
- if (!cid) return 'global';
- const chat = ppStChatId();
- return chat ? `${cid}::${chat}` : String(cid);
+ return ppSceneRouteKey(); // ★ [2.49.0] กลุ่มยึด id กลุ่ม ไม่ใช่คนพูดล่าสุด
 }
 function ppEchoItems(routeKey) {
  const cfg = getCfg();
@@ -3604,6 +3848,7 @@ function ppEchoItems(routeKey) {
   saveCfg();
  }
  const k = routeKey || ppEchoRouteKey();
+ if (ppSeedGroupRoute(cfg.echoByRoute, k)) saveCfg(); // ★ [2.49.0] echo กลุ่มเดิมไม่หาย
  if (!Array.isArray(cfg.echoByRoute[k])) cfg.echoByRoute[k] = [];
  return cfg.echoByRoute[k];
 }
@@ -4216,13 +4461,13 @@ function ppNpcKwMatches(hay) {
  if (cfg.npcKwEnabled !== true) return [];
  const H = String(hay || '').toLowerCase();
  if (!H) return [];
- const scope = currentCharacterId();
+ const scopes = ppMainCharIds(); // ★ [2.49.0] แชทกลุ่ม: NPC ของสมาชิกทุกคน
  const out = [];
  getContacts().forEach(c => {
   if (!c.npc) return;
   if (c.kwOff === true) return;
   // เอาเฉพาะ NPC ที่ผูกกับตัวละครที่เปิดอยู่ ถ้ามีตัวละครเปิดอยู่
-  if (scope && c.baseCharId !== scope && c.ownerCharId !== scope) return;
+  if (scopes.length && scopes.indexOf(c.baseCharId) < 0 && scopes.indexOf(c.ownerCharId) < 0) return;
   const words = ppNpcKwWords(c);
   if (!words.length) return;
   if (!words.some(w => H.includes(w))) return;
@@ -11637,10 +11882,14 @@ function renderContactList() {
  contacts = contacts.filter(id => { const c = findContact(id); return c && ppContactInScope(c); });
  groups = groups.filter(id => { const g = getGroup(id); return g && (g.members || []).some(mid => { const cc = findContact(mid); return cc && ppContactInScope(cc); }); });
  }
- const scopeBar = currentCharacterId()
+ // ★ [2.49.0] แชทกลุ่ม: บอกชื่อสมาชิกครบทุกคน
+ const scopeMains = ppMainCharIds();
+ const scopeNames = scopeMains.map(id => ppSceneCharName(id));
+ const scopeLabel = scopeNames.length > 3 ? scopeNames.slice(0, 3).join(', ') + ` +${scopeNames.length - 3}` : scopeNames.join(', ');
+ const scopeBar = scopeMains.length
  ? `<div class="pp-scope-bar" id="pp-scope-toggle">${getCfg().ppShowAllContacts
  ? 'แสดงทุกคอนแทกต์ · แตะเพื่อโฟกัสเฉพาะตัวละครที่เปิดอยู่'
- : 'โฟกัส ' + esc(cname(currentCharacterId())) + ' + NPC ของเขา · แตะเพื่อแสดงทั้งหมด'}</div>`
+ : 'โฟกัส ' + esc(scopeLabel) + (scopeMains.length > 1 ? ' + NPC ของทุกคน' : ' + NPC ของเขา') + ' · แตะเพื่อแสดงทั้งหมด'}</div>`
  : '';
 
  if (f) {
@@ -11730,7 +11979,7 @@ function renderAddContacts() {
  const shown = q ? chars.filter(c => c.name.toLowerCase().includes(q)) : chars;
  list.innerHTML = head + (shown.length ? shown.map(c => `<div class="pp-row">
   ${contactAvatarHTML(c, 48)}
-  <div class="pp-row-meta"><div class="pp-row-name">${esc(c.name)}</div></div>
+  <div class="pp-row-meta"><div class="pp-row-name">${esc(c.name)}</div>${(() => { const lb = ppStCharLabel(c, chars); return lb !== c.name ? `<div class="pp-row-sub">${esc(lb.slice(c.name.length).replace(/^\s*·?\s*/, ''))}</div>` : ''; })()}</div>
   ${added.has(c.id) ? `<span style="color:#30d158;font-size:14px;font-weight:600">เพิ่มแล้ว</span>`
    : `<button class="pp-btn primary" data-add="${esc(c.id)}" style="padding:7px 15px">เพิ่ม</button>`}
  </div>`).join('') : `<div class="pp-empty">${ICON.search}<br>ไม่พบชื่อนี้</div>`);
@@ -11882,7 +12131,7 @@ function ppCreateCustomNpc() {
  ]);
  };
  const items = [{ label: 'ไม่อ้างอิงใคร', icon: ICON.person, onClick: () => askAvatar('') }];
- chars.forEach(c => items.push({ label: `อ้างอิงจาก ${c.name}`, icon: ICON.users, onClick: () => askAvatar(c.id) }));
+ chars.forEach(c => items.push({ label: `อ้างอิงจาก ${ppStCharLabel(c, chars)}`, icon: ICON.users, onClick: () => askAvatar(c.id) }));
  ppSheet('อ้างอิงบุคลิกจากตัวละครหลักตัวไหน', items);
  }, { rows: 4, placeholder: 'เช่น พี่ชายจอมกวน พูดตรง ชอบแซว' });
  }, { rows: 1 });
@@ -13588,7 +13837,7 @@ function ppMoveContactRoute(cid) {
  try { chars = listStCharacters() || []; } catch {}
  const cur = c.baseCharId || c.ownerCharId || '';
  const items = chars.slice(0, 40).map(ch => ({
-  label: `${ch.name}${(ch.id === cur) ? ' · อยู่ตรงนี้' : ''}`,
+  label: `${ppStCharLabel(ch, chars)}${(ch.id === cur) ? ' · อยู่ตรงนี้' : ''}`,
   icon: ICON.person,
   onClick: () => {
    c.baseCharId = ch.id;
@@ -13784,7 +14033,7 @@ function ppChatMenu() {
  ppToast('ล้างแล้ว');
  }, 'ล้าง');
  } });
- if (!isGroup && tid === currentCharacterId()) {
+ if (!isGroup && ppIsMainChar(tid)) { // ★ [2.49.0] สมาชิกกลุ่มทุกคน
  items.unshift({ label: 'สลับรูท (แชท SillyTavern)', icon: ICON.messages, onClick: ppOpenRouteSwitcher });
  // ★ 2.4.0 ย้ายแชทระหว่างรูท
  items.push({ label: 'ย้ายแชทไปรูทอื่น', icon: ICON.transfer, onClick: () => ppOpenRouteMover(tid) });
@@ -13797,7 +14046,7 @@ function ppChatMenu() {
  items.unshift({ label: cur ? `ผูกกับ: ${cname(cur)} · แตะเปลี่ยน` : 'ผูก NPC นี้กับตัวละคร', icon: ICON.users, onClick: () => {
  const chars = listStCharacters();
  const opts = [{ label: 'ไม่ผูกใคร', icon: ICON.person, onClick: () => { _c.ownerCharId = ''; _c.baseCharId = ''; saveCfg(); renderContactList(); ppToast('เอาการผูกออกแล้ว'); } }];
- chars.forEach(ch => opts.push({ label: ch.name + (cur === ch.id ? ' ·' : ''), icon: ICON.users, onClick: () => { _c.ownerCharId = ch.id; saveCfg(); renderContactList(); ppToast(`ผูกกับ ${ch.name} แล้ว`); } }));
+ chars.forEach(ch => opts.push({ label: ppStCharLabel(ch, chars) + (cur === ch.id ? ' ·' : ''), icon: ICON.users, onClick: () => { _c.ownerCharId = ch.id; saveCfg(); renderContactList(); ppToast(`ผูกกับ ${ch.name} แล้ว`); } }));
  ppSheet('ผูก NPC นี้กับตัวละครไหน', opts);
  } });
  }
@@ -14450,7 +14699,7 @@ function renderCallLog() {
  logs = logs.filter(l => l.cid === ppCallLogFilter);
  // กรองประวัติรายคน: ถ้าเป็นตัวละครหลัก ให้แยกตามรูท (แชท ST) ปัจจุบัน
  // สายเก่าที่ไม่มี chatId (ก่อนอัปเดต) ยังโชว์อยู่ทุกรูท เพื่อไม่ให้ข้อมูลเดิมหาย
- if (ppCallLogFilter === currentCharacterId()) {
+ if (ppIsMainChar(ppCallLogFilter)) { // ★ [2.49.0]
  const curChat = ppStChatId();
  if (curChat) logs = logs.filter(l => !l.chatId || l.chatId === curChat);
  }
@@ -14499,7 +14748,7 @@ async function ppCallGenerate(opener) {
  try {
  const un = getUserDisplayName();
  // ตัวละครหลัก: การ์ด+persona ถูกโหลดโดย generateQuietPrompt แล้ว ไม่ฉีดซ้ำ (ประหยัดหลักหมื่นโทเคน)
- const persona = (c.id === currentCharacterId()) ? '' : getEffectivePersona(c.id);
+ const persona = ppCardAutoLoaded(c.id) ? '' : getEffectivePersona(c.id); // ★ [2.49.0] กลุ่ม: ST ไม่รับประกันว่าโหลดการ์ดของคนนี้
  const up = getEffectiveUserPersona(c.id);
  const chatHist = ppHistSlice(getThread(c.id)).map(m => {
  if (m.type === 'call') return `[${m.dir === 'out' ? 'โทรออก' : 'สายเข้า'}]`;
@@ -15691,6 +15940,7 @@ function ppUserAliases() {
  };
  push(getUserName());
  push(getUserDisplayName());
+ push(getCfg().userAppName); // ★ [2.49.0] ชื่อในแอพยังนับเป็นผู้ใช้ แม้ตอนนี้จะแสดงเป็นชื่อ persona
  push(getUserHandle());
  try { ppAccountsOf('user').forEach(a => { push(ppAccName(a.id)); push(ppAccHandle(a.id)); }); } catch {}
  getContacts().forEach(c => { if (c.userNickname) push(c.userNickname); });
@@ -15727,6 +15977,20 @@ function ppDmToUser(ev, senderName) {
  const aliases = ppUserAliases();
  if (aliases.some(a => low === a || low.includes(a) || a.includes(low))) {
   return { ok: true, reason: 'ปลายทางคือผู้ใช้', target: raw };
+ }
+ // ★ [2.49.0] ตรงกับตัวละครอีกคนในแชทกลุ่มของ ST (อาจยังไม่อยู่ในคอนแทกต์) แปลว่าคุยกันเองในฉาก
+ const sceneOther = ppMainCharIds().map(id => ({ id, n: ppSceneCharName(id) }))
+  .find(o => { const n = String(o.n || '').toLowerCase(); return n && (n === low || (n.length >= 3 && (low.includes(n) || n.includes(low)))); });
+ if (sceneOther && !findContact(sceneOther.id)) {
+  const sn0 = String(senderName || '').toLowerCase();
+  if (!(sn0 && sn0 === String(sceneOther.n).toLowerCase())) {
+   return { ok: false, reason: `ส่งถึง ${sceneOther.n} ไม่ใช่คุณ`, target: sceneOther.n };
+  }
+ }
+ // ★ [2.49.0] ตรงกับชื่อการ์ดตัวละครใน ST แบบเป๊ะ (เช่นสมาชิกกลุ่มที่ถูกปิดไว้) — ไม่ใช่ผู้ใช้แน่นอน
+ const stOther = listStCharacters().find(x => String(x.name || '').toLowerCase() === low && !findContact(x.id));
+ if (stOther && String(senderName || '').toLowerCase() !== low) {
+  return { ok: false, reason: `ส่งถึง ${stOther.name} ไม่ใช่คุณ`, target: stOther.name };
  }
  // ตรงกับคอนแทกต์คนอื่น แปลว่าคุยกันเอง
  const other = getContacts().find(c => {
@@ -19959,7 +20223,12 @@ function renderProfileEdit() {
  <label class="pp-upload">${ICON.upload} เปลี่ยนรูปโปรไฟล์<input type="file" id="pp-prof-av-pick" accept="image/*" hidden></label>
  </div>
  <div class="pp-sec-label">ชื่อที่แสดง</div>
- <input class="pp-input-line" id="pp-pe-name" placeholder="ชื่อ" value="${esc(cfg.userAppName || '')}">
+ <div class="pp-card"><div class="pp-cell">
+ <span class="pp-cell-lb">ใช้ชื่อ Persona ของ SillyTavern</span>
+ <label class="pp-switch"><input type="checkbox" id="pp-pe-follow-persona"${cfg.userNameFollowsPersona !== false ? ' checked' : ''}><span></span></label>
+ </div></div>
+ <div class="pp-hint">เปิดไว้ = มือถือใช้ชื่อ persona ที่เปิดอยู่ตอนนี้ (<b>${esc(getUserName())}</b>) สลับ persona แล้วชื่อในมือถือเปลี่ยนตามทันที และบอทจะเรียกชื่อตรงกับในบทเสมอ<br>ปิดไว้ = ใช้ชื่อที่พิมพ์ด้านล่างแทน ไม่ว่าจะสลับ persona เป็นใคร</div>
+ <input class="pp-input-line" id="pp-pe-name" placeholder="${esc(getUserName())}" value="${esc(cfg.userAppName || '')}">
  <div class="pp-sec-label">ชื่อแอค (@handle)</div>
  <input class="pp-input-line" id="pp-pe-handle" placeholder="${esc(getUserHandle())}" value="${esc(cfg.userHandle || '')}">
  <div class="pp-sec-label">bio</div>
@@ -19978,13 +20247,15 @@ function renderProfileEdit() {
 }
 function ppProfileSave() {
  const cfg = getCfg();
- const before = { name: cfg.userAppName, handle: cfg.userHandle, bio: cfg.userBio, link: cfg.userLink };
+ const before = { name: cfg.userAppName, handle: cfg.userHandle, bio: cfg.userBio, link: cfg.userLink, follow: cfg.userNameFollowsPersona !== false };
+ cfg.userNameFollowsPersona = !!document.getElementById('pp-pe-follow-persona')?.checked;
  cfg.userAppName = (document.getElementById('pp-pe-name')?.value || '').trim();
  cfg.userHandle = (document.getElementById('pp-pe-handle')?.value || '').trim().replace(/^@/, '');
  cfg.userBio = (document.getElementById('pp-pe-bio')?.value || '').trim();
  cfg.userLink = (document.getElementById('pp-pe-link')?.value || '').trim();
  saveCfg();
  const changes = [];
+ if (before.follow !== (cfg.userNameFollowsPersona !== false)) changes.push(`ใช้ชื่อ Persona: ${cfg.userNameFollowsPersona !== false ? 'เปิด' : 'ปิด'} (ตอนนี้แสดงเป็น "${getUserDisplayName()}")`);
  if (before.name !== cfg.userAppName) changes.push(`ชื่อแสดง: "${before.name || '—'}" เป็น "${cfg.userAppName || '—'}"`);
  if (before.handle !== cfg.userHandle) changes.push(`ชื่อแอค: "@${before.handle || '—'}" เป็น "@${cfg.userHandle || getUserHandle()}"`);
  if (before.bio !== cfg.userBio) changes.push(`bio: "${cfg.userBio || '—'}"`);
@@ -20622,6 +20893,20 @@ const PP_GUIDE_FAQ = [
    text: 'ใช้รูปเล็กลง หรือใช้ลิงก์แทนการดึงจากเครื่อง · รูปจากลิงก์ไม่กินพื้นที่และส่งต่อไปเครื่องคนอื่นได้ด้วย' },
 ];
 const PP_CHANGELOG = [
+ { v: '2.49.0', title: 'รองรับแชทกลุ่ม ชื่อยึด Persona และตัวละครชื่อซ้ำกัน',
+   lines: [
+    'แชทกลุ่มของ SillyTavern ใช้กับมือถือได้เต็มที่แล้ว สมาชิกทุกคนในกลุ่มนับเป็นตัวละครหลัก ขอบเขตคอนแทกต์ การผูกรูท ประวัติโทร และ NPC ของทุกคนทำงานครบ ไม่ใช่แค่คนเดียว',
+    'ในแชทกลุ่ม ระบบบอกบอทว่าในฉากมีใครบ้าง และตอนนี้ใครเป็นคนพูด ข้อความเข้ามือถือจึงมาจากคนที่ส่งจริง ไม่สลับคนกัน ถ้าสมาชิกคุยกันเองจะไม่เด้งเข้ามือถือของเรา',
+    'ชื่อของเราในมือถือใช้ชื่อ Persona ที่เปิดอยู่เป็นหลัก สลับ Persona แล้วชื่อเปลี่ยนตามทันทีโดยไม่ต้องรีเฟรชหน้าเว็บ บอทเรียกชื่อตรงกับในโรลเสมอ ถ้าอยากใช้ชื่อที่ตั้งเองในแอพ ปิดสวิตช์ได้ที่หน้าแก้โปรไฟล์',
+    'ตัวละครที่ชื่อซ้ำกัน (การ์ดชื่อเดียวกันหลายใบ หรือ NPC ชื่อเดียวกันของคนละเรื่อง) ระบบเลือกตัวที่อยู่ในฉากตอนนี้ก่อนเสมอ ไม่ดึงอีกตัวมาแทนแล้ว และในรายการเพิ่มคอนแทกต์จะบอกชื่อไฟล์การ์ดให้แยกออก',
+    'บอทใส่ชื่อเราเป็นคนส่ง จะไม่สร้างคอนแทกต์ปลอมที่เป็นตัวเราเองอีก ทั้งแบบเฟรมใหม่และคีย์แบบเก่า [PP_MSG] [PP_NEWCHAT] ฯลฯ',
+    'บอทลืมบอกว่าใครส่ง หรือเขียนว่า me / {{char}} ระบบถือว่าเป็นตัวละครที่พูดอยู่ในข้อความนั้น ไม่ทิ้งเหตุการณ์ไปเฉย ๆ',
+    'กระเป๋าเงินและรายการที่ส่งเข้ามือถือของแชทกลุ่มผูกกับกลุ่มนั้น ไม่สลับไปมาตามคนพูด ยอดเงินกลุ่มเดิมก่อนอัปเดตคัดลอกมาให้ ไม่มีอะไรหาย',
+    'แอคหลุมที่บางคนไม่ควรรู้ จะไม่ถูกส่งเข้าโรลแชทกลุ่มถ้ามีสมาชิกคนไหนไม่ควรรู้',
+    'สลับรูทจากในมือถือได้ในแชทกลุ่มด้วย',
+   ],
+   tip: 'สวิตช์ "ใช้ชื่อ Persona ของ SillyTavern" อยู่ในหน้าแก้โปรไฟล์ของเรา เปิดไว้เป็นค่าเริ่มต้น' },
+
  { v: '2.48.1', title: 'แก้แอพสัตว์เลี้ยงไม่ขึ้นบนมือถือ (โหลด pet-assets.js เอง)',
    lines: [
     'ของเดิมพึ่งให้ manifest.json โหลด pet-assets.js กับ index.js เป็นอาร์เรย์สองไฟล์ ซึ่ง SillyTavern ไม่รองรับ ขึ้นสถานะถูกต้องสีเขียวได้ แต่ไฟล์ที่สองไม่ถูกโหลดจริง แอพสัตว์เลี้ยงเลยไม่ขึ้นบนมือถือ',
@@ -24034,10 +24319,10 @@ async function ppGenerateReply() {
  const un = getUserDisplayName();
  // ตัวละครหลัก: การ์ด+persona ถูกโหลดโดย generateQuietPrompt แล้ว ไม่ฉีดซ้ำ (ประหยัดหลักหมื่นโทเคน)
  if (c.loreBook) { try { await ppFetchLoreForContact(c.id); } catch {} }
- const persona = (c.id === currentCharacterId()) ? '' : getEffectivePersona(c.id);
+ const persona = ppCardAutoLoaded(c.id) ? '' : getEffectivePersona(c.id); // ★ [2.49.0] กลุ่ม: ST ไม่รับประกันว่าโหลดการ์ดของคนนี้
  const up = getEffectiveUserPersona(c.id);
  const note = getUserNote();
- const isMainChar = c.id === currentCharacterId();
+ const isMainChar = ppIsMainChar(c.id);
  // ไม่ดึง recap โรลหลักเข้า prompt แชทแล้ว — บอทหลักแชร์ประวัติผ่านตัว SillyTavern เองอยู่แล้ว (ประหยัดโทเคน)
  const rp = '';
  const period = periodPromptNote(c.id);
@@ -24792,7 +25077,7 @@ async function ppFeedGenerateQueue(ids) {
     comments: [], views: {}, saves: 0,
    });
    pushNotif(a.id, 'feed', `${dname(a)} โพสต์ใหม่`);
-   if (a.id === currentCharacterId()) ppLogBot('feed', `โพสต์ลงฟีดว่า "${txt.slice(0, 120)}"`);
+   if (ppIsMainChar(a.id)) ppLogBot('feed', `โพสต์ลงฟีดว่า "${txt.slice(0, 120)}"`);
    postMap[dname(a)] = cfg.feedPosts[cfg.feedPosts.length - 1]; // ★ 2.6.0
    added++;
    if (ppFeedGenAbort) break;
@@ -24816,7 +25101,7 @@ async function ppFeedGenerate(forcedAuthorId) {
  if (ppFeedGenBusy || ppGeneratingId) return;
  const cfg = getCfg();
  let pool = getContacts().filter(c => !isBlocked(c.id));
- if (cfg.universeAffectsRP) pool = pool.filter(c => c.id !== currentCharacterId());
+ if (cfg.universeAffectsRP) pool = pool.filter(c => !ppIsMainChar(c.id)); // ★ [2.49.0] ครบทุกคนในกลุ่ม
  if (!pool.length) { ppToast('ยังไม่มีคอนแทกต์ให้โพสต์'); return; }
  ppFeedGenBusy = true; ppFeedGenAbort = false; ppGenAbort = false;
  showFeedGenControls(true);
@@ -24883,7 +25168,7 @@ Then on a new line: [LIKES] N (realistic like count).`,
    if (ppCurrentScreen === 'feed') renderFeed();
    ppToast(`${dname(author)} รีโพสต์ของ ${postAuthorLabel(root)}`);
    // ★ 1.9.0
-   if (author.id === currentCharacterId()) ppLogBot('feed', `รีโพสต์ของ ${postAuthorLabel(root)}${rpM[2] ? ` พร้อมเขียนว่า "${stripEmoji((rpM[2] || '').trim())}"` : ''}`);
+   if (ppIsMainChar(author.id)) ppLogBot('feed', `รีโพสต์ของ ${postAuthorLabel(root)}${rpM[2] ? ` พร้อมเขียนว่า "${stripEmoji((rpM[2] || '').trim())}"` : ''}`);
    return;
   }
  }
@@ -24920,7 +25205,7 @@ Then on a new line: [LIKES] N (realistic like count).`,
   pushNotif(author.id, 'feed', `${dname(author)} โพสต์ใหม่`);
   if (!document.getElementById('pp-dialog')?.open) islandNotify(author, `${dname(author)} โพสต์ใหม่`);
   // ★ 1.9.0 บอทจำได้ว่าตัวเองโพสต์อะไร
-  if (author.id === currentCharacterId()) ppLogBot('feed', `โพสต์ลงฟีดว่า "${String(text).replace(/\n/g, ' ').slice(0, 140)}"`);
+  if (ppIsMainChar(author.id)) ppLogBot('feed', `โพสต์ลงฟีดว่า "${String(text).replace(/\n/g, ' ').slice(0, 140)}"`);
  }
  } else ppToast('บอทยังไม่โพสต์ ลองอีกครั้ง');
  } catch (e) { console.error('[pocket-phone] feed gen', e); ppToast('สร้างโพสต์ไม่สำเร็จ: ' + ppGenerationError(e)); }
@@ -25155,7 +25440,7 @@ Only reply to a name that already appears above. Never reply to someone who has 
  });
  p.views = p.views || {}; p.views[c.id] = Date.now();
  pushNotif(c.id, 'comment', `${dname(c)} คอมเมนต์: ${text.slice(0, 40)}`);
- if (c.id === currentCharacterId()) ppLogBot('feed', `คอมเมนต์โพสต์ของ ${postAuthorLabel(p)} ว่า "${text}"`);
+ if (ppIsMainChar(c.id)) ppLogBot('feed', `คอมเมนต์โพสต์ของ ${postAuthorLabel(p)} ว่า "${text}"`);
  added++;
  }
  // ★ 1.0.0 คอมเมนต์ผี (1.3.0: ปิดได้จากสวิตช์ดราม่า)
@@ -25582,68 +25867,127 @@ function ppNormalizeSyncEvent(raw) {
  }
  return ev;
 }
+function ppNameNorm(s) { return String(s || '').toLowerCase().replace(/\s+/g, '').replace(/[‘’'"`\-_.]/g, ''); }
+/** ★ [2.49.0] คำที่ตัวละครใช้เรียกตัวเองในช่อง from ("me", "{{char}}") — หมายถึงคนที่พูดในโรล ไม่ใช่ผู้ใช้ */
+function ppIsSelfToken(name) {
+ const t = ppNameNorm(String(name || '').replace(/^@/, ''));
+ return ['me', 'i', 'myself', 'self', 'char', '{{char}}', 'ฉัน', 'ผม', 'เรา', 'หนู', 'กู', 'ข้า'].indexOf(t) >= 0;
+}
+/** ★ [2.49.0] ชื่อนี้หมายถึงตัวผู้ใช้เองหรือเปล่า
+ * ครอบคลุม persona ที่เปิดอยู่ · ชื่อที่ตั้งในแอพ · @handle · คำแทนผู้ใช้ ({{user}}, user, you)
+ * persona อื่นที่ไม่ได้เปิดอยู่นับด้วย เว้นแต่ชื่อชนกับตัวละคร/คอนแทกต์
+ * ของเดิมไม่มีด่านนี้ พอบอทใส่ชื่อ persona ลงช่อง from ระบบจะสร้าง NPC ปลอมที่เป็นตัวผู้ใช้เอง
+ * แล้วข้อความจะเด้งเข้ามือถือเหมือนมีคนอื่นชื่อเดียวกับเราส่งมา
+ * ("me" / "ฉัน" ในช่อง from คือตัวละครที่พูดเอง ไม่ใช่ผู้ใช้ — ดู ppIsSelfToken) */
+function ppIsUserName(name) {
+ const norm = ppNameNorm;
+ let nm = String(name || '').trim().replace(/^@/, '');
+ nm = nm.replace(/^(คุณ|พี่|น้อง|นาย|นาง|นางสาว)\s+/i, '').trim();
+ const t = norm(nm);
+ if (!t) return false;
+ if (['user', 'you', '{{user}}', 'theuser', 'player', 'ผู้ใช้'].indexOf(t) >= 0) return true;
+ // ชื่อที่ใช้อยู่จริงตอนนี้ — ชนะเสมอ
+ const live = [getUserName(), getUserDisplayName(), getCfg().userAppName, getUserHandle()];
+ if (live.filter(Boolean).some(x => norm(x) === t)) return true;
+ // persona อื่นในเครื่องที่ไม่ได้เปิดอยู่ นับเป็นผู้ใช้ได้ก็ต่อเมื่อไม่ชนกับตัวละคร/คอนแทกต์ชื่อเดียวกัน
+ // (คนชอบตั้ง persona ชื่อเดียวกับตัวละคร — ถ้าไม่เช็ก ตัวละครตัวนั้นจะส่งอะไรเข้ามือถือไม่ได้เลย)
+ let personaHit = false;
+ try { personaHit = listUserPersonas().some(p => norm(p.name) === t); } catch {}
+ if (!personaHit) return false;
+ const clash = listStCharacters().some(x => norm(x.name) === t) || getContacts().some(x => norm(dname(x)) === t || norm(x.name) === t);
+ return !clash;
+}
 /** ★ 1.4.5 เข้มเฉพาะกับตัวละครหลักที่เปิดอยู่ · NPC ใหม่เกิดได้ตามปกติ
- * บทเรียนจาก 1.4.3: การจับชื่อแบบบางส่วนด้วยเกณฑ์สั้น ทำให้ NPC ใหม่ถูกเหมาเข้าคนเดิม */
+ * บทเรียนจาก 1.4.3: การจับชื่อแบบบางส่วนด้วยเกณฑ์สั้น ทำให้ NPC ใหม่ถูกเหมาเข้าคนเดิม
+ * ★ [2.49.0] ชื่อซ้ำกันหลายคน (การ์ดชื่อเดียวกัน / NPC ชื่อเดียวกันของคนละตัวละคร)
+ * เลือกคนที่อยู่ในฉากตอนนี้ก่อนเสมอ ด้วย ppPickByScene — ของเดิมหยิบตัวแรกในรายการ จึงดึงอีกตัวมาแทน */
 function ppSyncFindContact(name, create) {
  let nm = String(name || '').trim();
  if (!nm) return null;
+ // ★ [2.49.0] "me" / "{{char}}" = ตัวละครที่พูดในโรลตอนนี้
+ if (ppIsSelfToken(nm)) {
+  const sid = ppSyncSpeakerId || currentCharacterId();
+  if (!sid) return null;
+  const ex = findContact(sid);
+  if (ex) return ex;
+  const stS = listStCharacters().find(x => x.id === sid);
+  if (!stS || !create) return null;
+  const freshS = { id: stS.id, name: stS.name, avatar: stS.avatar };
+  getCfg().contacts.push(freshS);
+  saveCfg();
+  return freshS;
+ }
  nm = nm.replace(/^@/, '').replace(/^(คุณ|พี่|น้อง|นาย|นาง|นางสาว)\s+/i, '').trim();
  if (!nm) return null;
- const norm = s => String(s || '').toLowerCase().replace(/\s+/g, '').replace(/[‘’'"`\-_.]/g, '');
+ // ★ [2.49.0] เป็นชื่อของผู้ใช้เอง ไม่ใช่คนอื่น — ห้ามสร้างคอนแทกต์ปลอม
+ if (ppIsUserName(nm)) return null;
+ const norm = ppNameNorm;
  const target = norm(nm);
  if (!target) return null;
-
- // 1) ตรงตัวเป๊ะ
- let c = getContacts().find(x => x.id === nm || dname(x) === nm);
- if (c) return c;
- // 2) ตรงหลังตัดช่องว่างและเครื่องหมาย
- c = getContacts().find(x => norm(dname(x)) === target);
- if (c) return c;
- // 3) ตรงกับชื่อจริงในการ์ด (เผื่อผู้ใช้ตั้ง customName ทับ)
- c = getContacts().find(x => norm(x.name) === target);
- if (c) return c;
-
- // 4) ★ กันตัวหลักตกชั้น — เข้มเฉพาะตัวละคร ST ที่เปิดอยู่ตัวเดียว
- const scopeId = currentCharacterId();
- if (scopeId) {
-  const scopeChar = listStCharacters().find(x => x.id === scopeId);
-  if (scopeChar) {
-   const sn = norm(scopeChar.name);
-   // ยอมรับเฉพาะกรณีที่ชื่อยาวใกล้เคียงกัน และเป็นส่วนหนึ่งของกันจริง
-   const lenOk = sn.length >= 3 && target.length >= 3 && Math.abs(sn.length - target.length) <= 6;
-   const hit = sn === target || (lenOk && (sn.includes(target) || target.includes(sn)));
-   if (hit) {
-    const existing = getContacts().find(x => x.id === scopeId);
-    if (existing) return existing;
-    if (!create) return null;
-    const fresh = { id: scopeChar.id, name: scopeChar.name, avatar: scopeChar.avatar };
-    getCfg().contacts.push(fresh);
-    saveCfg();
-    return fresh;
-   }
-  }
- }
-
- // 5) ★ เทียบกับตัวละครใน ST แบบตรงเป๊ะเท่านั้น — ไม่ใช้ includes อีกแล้ว
- const st = listStCharacters().find(x => norm(x.name) === target);
- if (st) {
-  const existing = getContacts().find(x => x.id === st.id);
+ const contacts = getContacts();
+ const stChars = listStCharacters();
+ const mainIds = ppMainCharIds();
+ const addSt = st => {
+  const existing = findContact(st.id);
   if (existing) return existing;
   if (!create) return null;
   const fresh = { id: st.id, name: st.name, avatar: st.avatar };
   getCfg().contacts.push(fresh);
   saveCfg();
   return fresh;
+ };
+
+ // 0) id ตรงตัว
+ let c = contacts.find(x => x.id === nm);
+ if (c) return c;
+ // 1-3) ชื่อตรงกัน (ชื่อในมือถือ / ชื่อในการ์ด) — รวมตัวละครในฉากที่ยังไม่ได้อยู่ในคอนแทกต์ด้วย
+ const exact = contacts.filter(x => dname(x) === nm || norm(dname(x)) === target || norm(x.name) === target);
+ const exactMainSt = stChars.filter(x => mainIds.indexOf(x.id) >= 0 && norm(x.name) === target && !findContact(x.id));
+ if (exact.length || exactMainSt.length) {
+  const best = ppPickByScene(exact);
+  const bestRank = best ? ppSceneRank(best) : -1;
+  if (exactMainSt.length) {
+   // ตัวละครในฉากชื่อนี้ แต่ยังไม่มีในคอนแทกต์ — ชนะคอนแทกต์เก่าที่อยู่นอกฉาก
+   const sp = exactMainSt.find(x => x.id === ppSyncSpeakerId) || exactMainSt[0];
+   const spRank = sp.id === ppSyncSpeakerId ? 6 : 5;
+   if (spRank > bestRank) { const r = addSt(sp); if (r) return r; if (!best) return null; }
+  }
+  if (best) return best;
+ }
+
+ // 4) ★ กันตัวหลักตกชั้น — เข้มเฉพาะตัวละคร ST ที่อยู่ในฉากตอนนี้
+ // ★ [2.49.0] แชทกลุ่ม: ไล่เทียบสมาชิกทุกคน คนที่พูดอยู่ก่อน
+ const scopeId = (ppSyncSpeakerId && mainIds.indexOf(ppSyncSpeakerId) >= 0) ? ppSyncSpeakerId : (mainIds[0] || currentCharacterId());
+ const orderedMains = mainIds.slice().sort((a, b) => (b === ppSyncSpeakerId) - (a === ppSyncSpeakerId));
+ for (const mid of orderedMains) {
+  const scopeChar = stChars.find(x => x.id === mid);
+  if (!scopeChar) continue;
+  const sn = norm(scopeChar.name);
+  // ยอมรับเฉพาะกรณีที่ชื่อยาวใกล้เคียงกัน และเป็นส่วนหนึ่งของกันจริง
+  const lenOk = sn.length >= 3 && target.length >= 3 && Math.abs(sn.length - target.length) <= 6;
+  const hit = sn === target || (lenOk && (sn.includes(target) || target.includes(sn)));
+  if (!hit) continue;
+  return addSt(scopeChar);
+ }
+
+ // 5) ★ เทียบกับตัวละครใน ST แบบตรงเป๊ะเท่านั้น — ไม่ใช้ includes อีกแล้ว
+ // ★ [2.49.0] การ์ดชื่อซ้ำกัน: เลือกตัวที่มีในคอนแทกต์และอยู่ในขอบเขตก่อน
+ const stSame = stChars.filter(x => norm(x.name) === target);
+ if (stSame.length) {
+  const known = stSame.map(x => findContact(x.id)).filter(Boolean);
+  const pick = ppPickByScene(known);
+  if (pick) return pick;
+  return addSt(stSame[0]);
  }
 
  // 6) ★ จับบางส่วนในคอนแทกต์เดิม — เกณฑ์เข้มขึ้นมาก กัน NPC ใหม่ถูกกลืน
  //    ต้องยาว 5 ตัวอักษรขึ้นไป และความยาวต่างกันไม่เกิน 4 ตัว
  if (target.length >= 5) {
-  const partial = getContacts()
+  const partial = contacts
    .map(x => ({ x, dn: norm(dname(x)) }))
    .filter(o => o.dn.length >= 5 && Math.abs(o.dn.length - target.length) <= 4
     && (o.dn.includes(target) || target.includes(o.dn)))
-   .sort((a, b) => b.dn.length - a.dn.length)[0];
+   .sort((a, b) => (ppSceneRank(b.x) - ppSceneRank(a.x)) || (b.dn.length - a.dn.length))[0];
   if (partial) return partial.x;
  }
 
@@ -25653,6 +25997,23 @@ function ppSyncFindContact(name, create) {
  getCfg().contacts.push(npc);
  saveCfg();
  return npc;
+}
+/** ★ [2.49.0] ตัวหาคนของคีย์แบบเก่า [PP_MSG:...] [PP_NEWCHAT:...] ฯลฯ
+ * ของเดิมแต่ละคีย์หาเองด้วย find ตัวแรก + includes หลวม ๆ ไม่มีด่านกันชื่อผู้ใช้ และไม่ดูว่าใครอยู่ในฉาก
+ * ตอนนี้ผ่าน ppSyncFindContact ตัวเดียวกับ frame JSON แล้วค่อยถอยไปจับแบบหลวมของเดิม (เฉพาะคนในขอบเขตก่อน) */
+function ppLegacyTagContact(nm, create) {
+ const name = String(nm || '').trim();
+ if (!name) return null;
+ if (ppIsUserName(name)) return null;
+ const strict = ppSyncFindContact(name, false);
+ if (strict) return strict;
+ const loose = getContacts().filter(x => { const d = dname(x); return d && d.length >= 2 && (name.includes(d) || d.includes(name)); });
+ if (loose.length) {
+  const inScope = loose.filter(x => !ppScopeActive() || ppContactInScope(x));
+  const pick = ppPickByScene(inScope.length ? inScope : loose);
+  if (pick) return pick;
+ }
+ return create ? ppSyncFindContact(name, true) : null;
 }
 function ppSyncFindGroup(name, members) {
  const nm = String(name || '').trim();
@@ -25695,10 +26056,19 @@ function ppSyncTypeAllowed(type) {
  if (!m) return true; // ไม่รู้จัก ปล่อยให้ตัวจัดการเดิมตอบว่า unsupported
  return bridgeOn(m);
 }
+/** ★ [2.49.0] ชนิด event ที่ต้องมีคนลงมือ — ถ้าบอทลืมใส่ from ให้ถือว่าเป็นตัวละครที่เขียน frame */
+const PP_SENDER_TYPES = ['dm', 'voice', 'sticker', 'location', 'gift', 'poll', 'unsend', 'nickname', 'story_reply',
+ 'group', 'call', 'missed_call', 'call_log', 'wallet_request', 'post', 'story', 'comment', 'comment_reply', 'like',
+ 'note', 'repost', 'share_post', 'follow', 'follow_request', 'unfollow', 'photo_decline', 'story_like', 'poll_vote',
+ 'save_post', 'unlike'];
 function ppApplySyncEvent(rawEv) {
  const ev = ppNormalizeSyncEvent(rawEv);
  if (!ev || typeof ev !== 'object') return { ok: false, reason: 'ไม่ใช่ object' };
  const type = String(ev.type || ev.kind || '').toLowerCase().replace(/[\s-]+/g, '_');
+ if (ppSyncSpeakerId && PP_SENDER_TYPES.includes(type) && !(ev.from || ev.author || ev.sender || ev.name || ev.contact)) {
+  const who = ppSceneCharName(ppSyncSpeakerId);
+  if (who) ev.from = who;
+ }
  const cfg = getCfg();
  if (type === 'noop' || type === 'none' || !type) return { ok: false, noop: true };
  if (!ppSyncTypeAllowed(type)) return { ok: false, reason: `โมดูลปิดอยู่: ${type}`, blocked: true };
@@ -26203,7 +26573,27 @@ function ppApplySyncEvent(rawEv) {
 
  return { ok: false, reason: `ไม่รู้จักประเภทนี้: ${type}` };
 }
-function ppApplySyncBatch(payload) {
+/** ★ [2.49.0] ตัวละครเจ้าของข้อความล่าสุดในโรลหลัก (คนที่เขียน frame นี้) */
+function ppMainChatSpeakerId() {
+ try {
+  const c = ctx();
+  if (!c || !Array.isArray(c.chat) || !c.chat.length) return currentCharacterId();
+  for (let i = c.chat.length - 1; i >= Math.max(0, c.chat.length - 6); i--) {
+   const m = c.chat[i];
+   if (!m || m.is_user || m.is_system) continue;
+   return ppCharIdFromStMessage(m) || currentCharacterId();
+  }
+ } catch {}
+ return currentCharacterId();
+}
+function ppApplySyncBatch(payload, speakerId) {
+ // ★ [2.49.0] จำไว้ว่าใครเป็นคนเขียน frame นี้ — ใช้ตัดสินชื่อซ้ำ, from ว่าง, from ที่เป็น "me"/"{{char}}"
+ const prevSpeaker = ppSyncSpeakerId;
+ ppSyncSpeakerId = speakerId !== undefined ? (speakerId || null) : ppMainChatSpeakerId();
+ try { return ppApplySyncBatchInner(payload); }
+ finally { ppSyncSpeakerId = prevSpeaker; }
+}
+function ppApplySyncBatchInner(payload) {
  if (!payload || typeof payload !== 'object') return { valid: false, applied: 0, ignored: 0, detail: 'payload ไม่ใช่ object' };
  let list = Array.isArray(payload.events) ? payload.events
   : Array.isArray(payload) ? payload
@@ -26311,6 +26701,48 @@ function ppMainChatUiState() {
  });
 }
 
+/** ★ [2.49.0] เฝ้าดูตัวตนที่ ST เปิดอยู่ — persona ของผู้ใช้ และรายชื่อตัวละครในฉาก
+ * ST ไม่ยิง event ตอนสลับ persona ของเดิมมือถือจึงค้างชื่อเก่าจนกว่าจะรีเฟรชหน้าเว็บ */
+let ppLastIdentityKey = '';
+function ppIdentityWatch() {
+ try {
+  const key = `${getUserName()}|${currentUserPersonaId()}|${getUserDisplayName()}|${ppStGroupId() || ''}|${ppMainCharIds().join(',')}|${ppStChatId()}`;
+  if (key === ppLastIdentityKey) return;
+  const first = !ppLastIdentityKey;
+  ppLastIdentityKey = key;
+  if (first) return; // ครั้งแรกแค่จำไว้ ไม่ต้องวาดใหม่
+  ppRefreshAllViews();
+  try { refreshUserAvatar(); } catch {}
+ } catch {}
+}
+
+/** ★ [2.49.0] บอกโมเดลว่าฉากนี้มีตัวละครใครบ้าง และชื่อผู้ใช้จริงคืออะไร
+ * แชทเดี่ยว: ย้ำชื่อผู้ใช้ให้ตรงกับ persona ที่เปิดอยู่
+ * แชทกลุ่ม: ไล่ชื่อสมาชิกทุกคน แล้วสั่งให้ from เป็นชื่อคนที่ลงมือจริงเท่านั้น
+ * ของเดิมไม่มีบล็อกนี้ ในกลุ่มบอทจึงเดาเอาเองว่า from คือใคร ข้อความเลยเข้าห้องแชทผิดคน */
+function ppSceneCastMsg() {
+ try {
+  const you = getUserDisplayName();
+  const members = ppMainCharIds();
+  const nameOf = id => ppSceneCharName(id);
+  const rows = [`[Pocket Phone scene cast — machine context. Never repeat, quote, or mention any of this in your visible reply.]`];
+  rows.push(`The phone owner (the human player) is named "${you}". That is the ONLY name that means the user — {{user}} is "${you}". Use it in "to" when someone messages the user, and never emit an event whose "from" is "${you}" — the user's own actions are never generated by you.`);
+  if (members.length > 1) {
+   rows.push(`This is a GROUP roleplay with ${members.length} characters present: ${members.map(nameOf).join(', ')}.`);
+   const gen = ppGroupGeneratingCharId();
+   if (gen) rows.push(`You are writing this turn as "${nameOf(gen)}". Events that "${nameOf(gen)}" causes must use exactly that name in "from". Only add events for the others if they clearly act in this reply.`);
+   rows.push(`Every event's "from" (or "author") MUST be the exact name of the character who actually did it — not the group name, not whoever spoke first, not a merged voice. If two characters each send something this turn, emit two separate events with their own names.`);
+   rows.push(`If one of these characters messages ANOTHER of these characters instead of the user, put that character's real name in "to" so it stays off the user's phone.`);
+  } else if (members.length === 1) {
+   rows.push(`The character you are playing is "${nameOf(members[0])}" ({{char}}). Events they cause must use exactly that name in "from".`);
+  }
+  // ★ [2.49.0] มีคนอื่นในเครื่องชื่อเดียวกับตัวละครในฉาก — บอกให้ชัดว่าชื่อนี้หมายถึงคนในฉาก
+  const dupNames = members.map(nameOf).filter(n => getContacts().filter(x => dname(x) === n).length + listStCharacters().filter(x => x.name === n && members.indexOf(x.id) < 0 && !findContact(x.id)).length > 1);
+  if (dupNames.length) rows.push(`Note: other people in the phone share the name ${[...new Set(dupNames)].map(n => `"${n}"`).join(', ')}. In this scene that name always means the character present here.`);
+  return rows.join('\n');
+ } catch { return ''; }
+}
+
 // ══════════════════════════════════════════════════════════
 // BRIDGE — ephemeral prompt in, plain JSON frame out
 // ══════════════════════════════════════════════════════════
@@ -26328,8 +26760,10 @@ window.ppGenInterceptor = function (chat, contextSize, abort, type) {
  // จึงโดนแทรกทั้งที่ไม่เคยกดเพิ่มใครเลย และบอทที่ไม่ได้อยู่ในเครื่องก็ถูกลากเข้ามาด้วย
  try {
   if (getCfg().requireContactToInject === true) {
-   const me = currentCharacterId();
-   if (me && !findContact(me)) {
+   // ★ [2.49.0] แชทกลุ่ม: ผ่านถ้ามีสมาชิกคนใดคนหนึ่งอยู่ในคอนแทกต์
+   // ของเดิมดูแค่ currentCharacterId() ซึ่งในกลุ่มคืน null ตลอด ด่านนี้เลยไม่เคยทำงานในกลุ่มเลย
+   const mains = ppMainCharIds();
+   if (mains.length && !mains.some(id => findContact(id))) {
     ppBridgeExpected = false;
     ppCancelActionBatch();
     ppCancelBotBatch();
@@ -26368,6 +26802,10 @@ window.ppGenInterceptor = function (chat, contextSize, abort, type) {
   ppBridgeExpected = false;
  }
 
+ // ★ [2.49.0] บอกโมเดลว่าฉากนี้มีใครบ้าง และชื่อผู้ใช้คือใครจริง ๆ
+ // จำเป็นมากในแชทกลุ่ม เพราะไม่มีตัวละคร "ตัวเดียว" ให้เดา บอทจึงมักใส่ from ผิดคน
+ const castMsg = ppSceneCastMsg();
+ if (castMsg) chat.push({ is_user: false, is_system: true, mes: castMsg });
  // ★ 2.5.0 โปรไฟล์ NPC ที่มีคนเอ่ยชื่อในเทิร์นนี้
  const npcBlock = ppNpcKwBlock(ppKwHaystack(chat));
  if (npcBlock) chat.push({ is_user: false, is_system: true, mes: npcBlock });
@@ -26523,7 +26961,7 @@ async function ppHandleMainChatMessageLegacy() {
  const rxCall = /\[PP_CALL:\s*([^\]]+)\]/gi;
  while ((m = rxCall.exec(mes))) {
  const nm = m[1].trim();
- const c2 = getContacts().find(x => dname(x) === nm) || getContacts().find(x => nm.includes(dname(x)));
+ const c2 = ppLegacyTagContact(nm, false); // ★ [2.49.0]
  if (c2 && !ppCall) { ppActiveContact = c2; ppActiveGroup = null; ppIncomingCall(c2); }
  }
  // จับทั้ง [PP_MSG:ชื่อ|ข้อความ] และ [PP_MSG:ชื่อ ข้อความ] (บอทมักลืมใส่ |)
@@ -26548,15 +26986,7 @@ async function ppHandleMainChatMessageLegacy() {
  else { nm = raw; rest = ''; }
  }
  }
- let c2 = getContacts().find(x => dname(x) === nm) || getContacts().find(x => nm && nm.includes(dname(x))) || getContacts().find(x => nm && dname(x).includes(nm));
- // ดัก: ไม่มีคอนแทกต์นี้ → สร้างให้เลย (โมเดลอาจใช้ PP_MSG แทน PP_NEWCHAT)
- if (!c2 && nm && rest) {
- const cfg2 = getCfg();
- const st = listStCharacters().find(x => x.name === nm);
- c2 = st ? { id: st.id, name: st.name, avatar: st.avatar } : { id: 'npc:' + newId(), name: nm, avatar: '', npc: true, ownerCharId: currentCharacterId() || '' };
- cfg2.contacts.push(c2);
- saveCfg();
- }
+ let c2 = ppLegacyTagContact(nm, !!(nm && rest)); // ★ [2.49.0] ด่านชื่อผู้ใช้ + เลือกคนในฉากก่อนเมื่อชื่อซ้ำ
  if (!c2 || !rest) continue;
  // แยกเป็นหลาย bubble ตาม || หรือขึ้นบรรทัดใหม่ (ไม่ใช้ lookbehind กันมือถือพัง)
  let chunks = String(rest).split(/\s*(?:\|\||\n)\s*/).map(s => stripEmoji(s.trim())).filter(Boolean);
@@ -26584,14 +27014,8 @@ async function ppHandleMainChatMessageLegacy() {
  else { nm = rawN; txt = ''; }
  }
  if (!nm) continue;
- let c2 = getContacts().find(x => dname(x) === nm);
- if (!c2) {
- const st = listStCharacters().find(x => x.name === nm);
- const cfg = getCfg();
- c2 = st ? { id: st.id, name: st.name, avatar: st.avatar } : { id: 'npc:' + newId(), name: nm, avatar: '', npc: true, ownerCharId: currentCharacterId() || '' };
- cfg.contacts.push(c2);
- saveCfg();
- }
+ let c2 = ppLegacyTagContact(nm, true); // ★ [2.49.0] ด่านชื่อผู้ใช้ + เลือกคนในฉากก่อนเมื่อชื่อซ้ำ
+ if (!c2) continue; // ชื่อผู้ใช้เอง ไม่ใช่คนอื่น
  if (txt) {
  pushThreadMsg(c2.id, { from: 'them', text: txt });
  bumpUnread(c2.id, 1);
@@ -26608,14 +27032,8 @@ async function ppHandleMainChatMessageLegacy() {
  if (!nm) continue;
  const count = Math.max(1, Math.min(20, parseInt(parts[1], 10) || 1));
  const ago = parts[2] || '';
- let c2 = getContacts().find(x => dname(x) === nm) || getContacts().find(x => nm.includes(dname(x)));
- if (!c2) {
- const cfg2 = getCfg();
- const st = listStCharacters().find(x => x.name === nm);
- c2 = st ? { id: st.id, name: st.name, avatar: st.avatar } : { id: 'npc:' + newId(), name: nm, avatar: '', npc: true, ownerCharId: currentCharacterId() || '' };
- cfg2.contacts.push(c2);
- saveCfg();
- }
+ let c2 = ppLegacyTagContact(nm, true); // ★ [2.49.0] ด่านชื่อผู้ใช้ + เลือกคนในฉากก่อนเมื่อชื่อซ้ำ
+ if (!c2) continue; // ชื่อผู้ใช้เอง ไม่ใช่คนอื่น
  const cfg = getCfg();
  if (!cfg.callLog) cfg.callLog = [];
  // ย้อนเวลาตาม ago (รองรับ "เมื่อคืน" "2 ชม." ฯลฯ แบบหยาบ ๆ)
@@ -26647,14 +27065,8 @@ async function ppHandleMainChatMessageLegacy() {
  const ago = (parts[1] || '').trim();
  const body = parts.slice(2).join('|').trim();
  if (!nm || !body) continue;
- let c2 = getContacts().find(x => dname(x) === nm) || getContacts().find(x => nm.includes(dname(x)));
- if (!c2) {
- const cfg2 = getCfg();
- const st = listStCharacters().find(x => x.name === nm);
- c2 = st ? { id: st.id, name: st.name, avatar: st.avatar } : { id: 'npc:' + newId(), name: nm, avatar: '', npc: true, ownerCharId: currentCharacterId() || '' };
- cfg2.contacts.push(c2);
- saveCfg();
- }
+ let c2 = ppLegacyTagContact(nm, true); // ★ [2.49.0] ด่านชื่อผู้ใช้ + เลือกคนในฉากก่อนเมื่อชื่อซ้ำ
+ if (!c2) continue; // ชื่อผู้ใช้เอง ไม่ใช่คนอื่น
  let baseTs = Date.now();
  const hourM = ago.match(/(\d+)\s*(ชม|ชั่วโมง|hour)/i);
  const dayM = ago.match(/(\d+)\s*(วัน|day)/i);
@@ -26690,14 +27102,8 @@ async function ppHandleMainChatMessageLegacy() {
  const ago = (parts[1] || '').trim();
  const mins = Math.max(1, Math.min(180, parseInt(parts[2], 10) || 1));
  const body = parts.slice(3).join('|').trim();
- let c2 = getContacts().find(x => dname(x) === nm) || getContacts().find(x => nm.includes(dname(x)));
- if (!c2) {
- const cfg2 = getCfg();
- const st = listStCharacters().find(x => x.name === nm);
- c2 = st ? { id: st.id, name: st.name, avatar: st.avatar } : { id: 'npc:' + newId(), name: nm, avatar: '', npc: true, ownerCharId: currentCharacterId() || '' };
- cfg2.contacts.push(c2);
- saveCfg();
- }
+ let c2 = ppLegacyTagContact(nm, true); // ★ [2.49.0] ด่านชื่อผู้ใช้ + เลือกคนในฉากก่อนเมื่อชื่อซ้ำ
+ if (!c2) continue; // ชื่อผู้ใช้เอง ไม่ใช่คนอื่น
  const ts = ppAgoToTs(ago);
  const transcript = body
  ? String(body).split(/\s*(?:\|\||\n)\s*/).map(s => s.trim()).filter(Boolean).map(s => {
@@ -26730,14 +27136,8 @@ async function ppHandleMainChatMessageLegacy() {
  const dir = /(^|[^a-z])in([^a-z]|$)/i.test(parts[3] || '') ? 'in' : 'out';
  const reason = (parts[4] || '').trim();
  if (!nm || !amt) continue;
- let c2 = getContacts().find(x => dname(x) === nm) || getContacts().find(x => nm.includes(dname(x)));
- if (!c2) {
- const cfg2 = getCfg();
- const st = listStCharacters().find(x => x.name === nm);
- c2 = st ? { id: st.id, name: st.name, avatar: st.avatar } : { id: 'npc:' + newId(), name: nm, avatar: '', npc: true, ownerCharId: currentCharacterId() || '' };
- cfg2.contacts.push(c2);
- saveCfg();
- }
+ let c2 = ppLegacyTagContact(nm, true); // ★ [2.49.0] ด่านชื่อผู้ใช้ + เลือกคนในฉากก่อนเมื่อชื่อซ้ำ
+ if (!c2) continue; // ชื่อผู้ใช้เอง ไม่ใช่คนอื่น
  const ts = ppAgoToTs(ago);
  const cfg = getCfg();
  if (!cfg.walletHistory) cfg.walletHistory = [];
@@ -26764,7 +27164,7 @@ async function ppHandleMainChatMessageLegacy() {
  while ((m = rxPay.exec(mes))) {
  const nm = m[1].trim(), amt = Math.abs(parseInt(m[2], 10) || 0), note = (m[3] || '').trim();
  if (!amt) continue;
- const c2 = getContacts().find(x => dname(x) === nm) || getContacts().find(x => nm.includes(dname(x)));
+ const c2 = ppLegacyTagContact(nm, false); // ★ [2.49.0]
  if (c2) {
  pushThreadMsg(c2.id, { from: 'them', type: 'transfer', amount: amt, note: note || 'โอนจากในเรื่อง', status: 'pending' });
  bumpUnread(c2.id, 1);
@@ -26789,7 +27189,7 @@ async function ppHandleMainChatMessageLegacy() {
  const rxFollow = /\[PP_FOLLOW:\s*([^\]]+)\]/gi;
  while ((m = rxFollow.exec(mes))) {
  const nm = m[1].trim();
- const c2 = getContacts().find(x => dname(x) === nm) || getContacts().find(x => nm.includes(dname(x)));
+ const c2 = ppLegacyTagContact(nm, false); // ★ [2.49.0]
  if (!c2) continue;
  const cfg = getCfg();
  if (cfg.accountLocked) {
@@ -26815,14 +27215,7 @@ async function ppHandleMainChatMessageLegacy() {
  if (sp > 0) { nm = raw.slice(0, sp).trim(); rest = raw.slice(sp + 1).trim(); }
  else { nm = raw; rest = ''; }
  }
- let c2 = getContacts().find(x => dname(x) === nm) || getContacts().find(x => nm && nm.includes(dname(x))) || getContacts().find(x => nm && dname(x).includes(nm));
- if (!c2 && nm && rest) {
- const cfg2 = getCfg();
- const st = listStCharacters().find(x => x.name === nm);
- c2 = st ? { id: st.id, name: st.name, avatar: st.avatar } : { id: 'npc:' + newId(), name: nm, avatar: '', npc: true, ownerCharId: currentCharacterId() || '' };
- cfg2.contacts.push(c2);
- saveCfg();
- }
+ let c2 = ppLegacyTagContact(nm, !!(nm && rest)); // ★ [2.49.0] ด่านชื่อผู้ใช้ + เลือกคนในฉากก่อนเมื่อชื่อซ้ำ
  if (!c2 || !rest) continue;
  const chunks = String(rest).split(/\s*(?:\|\||\n)\s*/).map(s => stripEmoji(s.trim())).filter(Boolean);
  const lines = chunks.length ? chunks : [stripEmoji(rest)];
@@ -29020,9 +29413,14 @@ function injectPhone() {
   const dupes = [];
   cfg2.contacts.forEach(c2 => {
    if (!c2.npc) return;
-   const hit = stChars.find(sc => norm(sc.name) === norm(c2.name)
+   const hits = stChars.filter(sc => norm(sc.name) === norm(c2.name)
     || (norm(sc.name).length >= 3 && norm(c2.name).includes(norm(sc.name)))
     || (norm(c2.name).length >= 3 && norm(sc.name).includes(norm(c2.name))));
+   // ★ [2.49.0] การ์ดชื่อซ้ำกัน: รวมเข้าตัวที่ NPC นี้ผูกอยู่ก่อน แล้วค่อยตัวในฉาก — ของเดิมหยิบตัวแรกเสมอ
+   const hit = hits.find(sc => sc.id === c2.ownerCharId || sc.id === c2.baseCharId)
+    || hits.find(sc => ppIsMainChar(sc.id))
+    || hits.find(sc => norm(sc.name) === norm(c2.name))
+    || hits[0];
    if (hit) dupes.push({ npc: c2, real: hit });
   });
   if (!dupes.length) return ppToast('ไม่พบตัวละครหลักที่ถูกสร้างซ้ำ');
@@ -29735,11 +30133,17 @@ window.PP_LOADED = 'parsed';
  if (c.event_types.CHARACTER_MESSAGE_RENDERED) c.eventSource.on(c.event_types.CHARACTER_MESSAGE_RENDERED, () => ppScheduleMainSync(900));
  if (c.event_types.CHAT_CHANGED) c.eventSource.on(c.event_types.CHAT_CHANGED, () => {
   ppBridgeExpected = false; ppCancelActionBatch(); getCfg().logStamps = []; saveCfg();
-  if (ppCurrentScreen === 'chat' && ppActiveContact && ppActiveContact.id === currentCharacterId()) renderThread();
+  // ★ [2.49.0] สลับแชท/สลับกลุ่ม แล้วขอบเขตคอนแทกต์เปลี่ยน ต้องวาดใหม่ทั้งเครื่อง
+  ppIdentityWatch();
+  try { ppRefreshAllViews(); } catch {}
+  if (ppCurrentScreen === 'chat' && ppActiveContact && ppIsMainChar(ppActiveContact.id)) renderThread();
   updateHomeWidgets();
  });
  }
  } catch (e) { console.warn('[pocket-phone] event hook', e); }
+ // ★ [2.49.0] เฝ้าดู persona และกลุ่มที่เปิดอยู่ — ST ไม่มี event ให้ตอนสลับ persona
+ // เปลี่ยน persona แล้วชื่อในมือถือต้องเปลี่ยนตามทันที ไม่ต้องรีเฟรชหน้าเว็บ
+ try { setInterval(ppIdentityWatch, 1500); } catch {}
  // ★ 1.3.0 วัดโทเคนล่วงหน้าเงียบ ๆ (tokenizer ในเครื่อง ไม่ยิง API)
  setTimeout(() => { ppMeasureBridgeTokens(false).catch(() => {}); }, 3000);
  // ★ 1.8.0 ตัวนำเข้าย้ายไปอยู่ที่ ppAddContact แล้ว — จังหวะแน่นอนกว่าตอนบูต
