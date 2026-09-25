@@ -1,4 +1,5 @@
 // pocket-phone/index.js
+// ★ [2.55.0] ท่อน 10 "โทรสมจริง" (ppCl*) — video/[FACE]/group_call/call_drop/สายซ้อน
 // ★ [2.54.0] ท่อน 9 "ฟีดคึกคัก" (ppFd*) — live/live_end/trend/ad/alt_caught · post: tags/reel/about · สำหรับคุณ
 // ★ [2.53.0] ท่อน 8 "แชทสมจริง" (ppCh*) — seen/typing/msg_react/edit/leak/unknown/reveal · แปล · บล็อกจริง · แชทลับ · ค้นตามชนิด · ธีมจากรูป
 // ★ [2.52.0] ท่อน 7 "สะพานอัจฉริยะ" (ppBr*) — ย่อแกนหลักอัตโนมัติ · งบโทเคน · ความคุ้ม · แนวโรล (PP_GENRES) · กู้เฟรมที่หาย · ดูก่อนส่ง · จังหวะ · ข้อห้าม · มือเดียว
@@ -26,7 +27,7 @@
 // getContext ล้วน · ไม่มี import/export · lazy + try/catch
 // ⚠️ รันเดี่ยวไม่ได้ ต้องแปะครบ 4 ท่อน
 
-const PP_VERSION = '2.54.0';
+const PP_VERSION = '2.55.0';
 const MODULE_NAME = 'pocket-phone';
 
 // ══════════════════════════════════════════════════════════
@@ -2928,6 +2929,7 @@ function ppBuildBridgeParts(actionBody, hay) {
    `  call_log — a call that already happened offscreen. {"type":"call_log","from":"Name","minutes":7,"transcript":["line","line"]}`,
   ];
   if (cfg.botCanMakeGroup) gp.push(`  group_create — create a new group and add the user to it. {"type":"group_create","group":"Group Name","members":["Name A","Name B"],"from":"Name A","text":["opening message"]}`);
+  gp.push(...ppClPromptLines()); // ★ [2.55.0]
   put('groupcall', ppPromptText('groupcall', gp.join('\n')));
  }
 
@@ -10610,6 +10612,7 @@ function buildPhone() {
  <div class="pp-call-bar">
  <button class="pp-call-barbtn" id="pp-call-min" title="ย่อสาย ไปเล่นแอปอื่น">${ICON.back}<span>ย่อสาย</span></button>
  <button class="pp-call-barbtn" id="pp-call-hist" title="ดูประวัติสาย">${ICON.clock}<span>ประวัติ</span></button>
+ <button class="pp-call-barbtn" data-px="cl-video" title="เปิด/ปิดวิดีโอ">${ICON.video}<span>วิดีโอ</span></button>
  </div>
  <div class="pp-call-top">
  <div class="pp-call-sub" id="pp-call-sub">Pocket Phone</div>
@@ -12745,7 +12748,7 @@ function renderThread(keepScroll) {
   stEl.classList.toggle('busy', !isGroup && ppIsAway(tid));
  }
  const callBtn = document.getElementById('pp-chat-call-btn');
- if (callBtn) callBtn.style.display = isGroup ? 'none' : 'flex';
+ if (callBtn) callBtn.style.display = 'flex'; // ★ [2.55.0] กลุ่มโทรได้แล้ว
 
  // แถบดาว
  const sb = document.getElementById('pp-star-banner');
@@ -14118,6 +14121,7 @@ function ppChatMenu() {
  ];
  // ★ 1.8.1 เหลือทางเข้าโปรไฟล์อันเดียว ปั้นกับนำเข้าไปอยู่ในหน้าโปรไฟล์แล้ว
  if (!isGroup) items.push({ label: 'ดูโปรไฟล์ในฟีด', icon: ICON.person, onClick: () => ppProfileOpen(tid, 'chat') });
+ if (!isGroup) items.push({ label: 'วิดีโอคอล', icon: ICON.video, onClick: () => ppClStartVideo() }); // ★ [2.55.0]
  if (!isGroup) items.push(
   { label: `ความจำของห้องนี้ (${ppMemos(tid).length})`, icon: ICON.star, onClick: () => ppMemoSheet(tid) },
   { label: 'สร้างห้องใหม่กับคนนี้', icon: ICON.plus, onClick: () => ppCloneContact(tid) },
@@ -14565,7 +14569,7 @@ function ppRenderCallScreen(c, status, ringing) {
  const scr = document.getElementById('pp-scr-call');
  if (!scr) return;
  scr.classList.toggle('ringing', !!ringing);
- const sub = document.getElementById('pp-call-sub'); if (sub) sub.textContent = ringing ? 'Pocket Phone Audio' : 'Pocket Phone';
+ const sub = document.getElementById('pp-call-sub'); if (sub) sub.textContent = (ringing && c && c.unknown) ? 'ไม่ทราบชื่อผู้โทร' : (ringing ? 'Pocket Phone Audio' : 'Pocket Phone'); // ★ [2.55.0]
  const nm = document.getElementById('pp-call-name'); if (nm) nm.textContent = dname(c);
  const st = document.getElementById('pp-call-status'); if (st) st.textContent = status;
  const dur = document.getElementById('pp-call-dur'); if (dur) dur.style.display = 'none';
@@ -14584,11 +14588,17 @@ function ppStartCall() {
  ppRenderCallScreen(c, 'กำลังโทร…', false);
  ppNav('call');
  ppPlayRingtone(c);
- setTimeout(() => { if (ppCall) ppConnectCall(); }, 1500 + Math.random() * 1200);
+ const thisCall = ppCall; // ★ [2.55.0] วางไปแล้วมีสายอื่นเข้า อย่าไปต่อสายนั้นแทน
+ setTimeout(() => { if (ppCall && ppCall === thisCall) ppConnectCall(); }, 1500 + Math.random() * 1200);
 }
 function ppIncomingCall(c) {
- if (!c || ppCall) return;
+ if (!c) return;
  if (ppPxBlockIncoming(c)) return; // ★ [2.50.0] ออฟไลน์/โฟกัส = สายที่ไม่ได้รับ
+ if (ppCall) { // ★ [2.55.0] สายซ้อน
+  if (ppCall.c && ppCall.c.id !== c.id && ppCall.connected) ppClCallWaiting(c);
+  else if (ppCall.c && ppCall.c.id !== c.id) ppPxMissCall(c, 'สายไม่ว่าง');
+  return;
+ }
  ppCall = { c, incoming: true, connected: false, startTs: 0, timer: null, generating: false, transcript: [] };
  ppRenderCallScreen(c, 'สายเรียกเข้า', true);
  if (!document.getElementById('pp-dialog')?.open) { islandNotify(c, 'สายเรียกเข้า'); ppOpen(); }
@@ -14780,6 +14790,7 @@ function ppEndCall(declined) {
  cfg.callLog.push({
  cid: c.id, name: dname(c), avatar: c.avatar, chatId: ppStChatId(),
  startISO: new Date().toISOString(), durText, incoming: ppCall.incoming, transcript,
+ video: !!ppCall.video, group: !!ppCall.group, dropped: ppCall.dropped || '', // ★ [2.55.0]
  });
  pushThreadMsg(c.id, {
  from: dir === 'out' ? 'me' : 'them', type: 'call', dir, missed,
@@ -14808,6 +14819,9 @@ function ppEndCall(declined) {
  // ★ 1.8.0 คุยจบแล้วแผนสายหมดอายุ กันเอาบทเปิดเดิมมาใช้ซ้ำ
  if (connected) ppClearCallPlan(c.id);
  ppCall = null;
+ ppClApplyVideo(); // ★ [2.55.0] เก็บจอวิดีโอ
+ const waitBox = document.getElementById('pp-cl-wait'); // สายซ้อนยังรออยู่ = วางสายนี้แล้วสายนั้นดังต่อ
+ if (waitBox) { const wc = findContact(waitBox.dataset.cid); waitBox.remove(); clearTimeout(ppClWaitTimer); if (wc) setTimeout(() => ppIncomingCall(wc), 900); }
  islandCollapse();
  ppNav('callend');
 }
@@ -14856,6 +14870,7 @@ function showTranscript(gi) {
  ppNav('transcript');
 }
 async function ppCallGenerate(opener) {
+ if (ppCall && ppCall.group) return ppClGroupGenerate(opener); // ★ [2.55.0] คอลกลุ่ม
  if (!ppCall || !ppCall.connected || ppCall.generating) return;
  const c = ppCall.c;
  const inp = document.getElementById('pp-call-input');
@@ -14909,6 +14924,7 @@ async function ppCallGenerate(opener) {
  `"เมื่อกี้พี่โทรมาแล้วรอบนึงนะ"`,
  `Wrong (never do this): ฮัลโหล ได้ยินไหม   ·   *ยิ้ม* "ฮัลโหล"   ·   ${dname(c)}: "ฮัลโหล"`,
  `If your character is ready to end the call, say ONE short goodbye in a quoted line AND add a final line exactly: [HANGUP]. Do not keep saying goodbye across many turns without [HANGUP].`,
+ ppClVideoPromptLine(), // ★ [2.55.0] วิดีโอคอล
  ].filter(Boolean).join('\n');
  let raw = await genWithRetry(prompt, 3);
  let wantHangup = /\[HANGUP\]/i.test(raw);
@@ -14925,6 +14941,7 @@ async function ppCallGenerate(opener) {
   } catch (e2) { console.warn('[pocket-phone] ขอใหม่ไม่สำเร็จ', e2); }
  }
  if (!lines.length) lines.push('…');
+ ppClFaceFromRaw(raw, lines); // ★ [2.55.0]
  if (ty) ty.classList.remove('show');
  let bye = false;
  for (let i = 0; i < lines.length; i++) {
@@ -21016,6 +21033,20 @@ const PP_GUIDE_FAQ = [
    text: 'ใช้รูปเล็กลง หรือใช้ลิงก์แทนการดึงจากเครื่อง · รูปจากลิงก์ไม่กินพื้นที่และส่งต่อไปเครื่องคนอื่นได้ด้วย' },
 ];
 const PP_CHANGELOG = [
+ { v: '2.55.0', title: 'โทรสมจริง: วิดีโอคอล คอลกลุ่ม สายซ้อน สายหลุด ผู้โทรไม่ทราบชื่อ',
+   lines: [
+    'วิดีโอคอล กดจากเมนูแชทหรือปุ่มวิดีโอระหว่างคุย เห็นหน้าอีกฝ่ายเต็มจอ มีกล้องเราเป็นหน้าต่างเล็กมุมจอ แตะเพื่อปิดกล้อง',
+    'สีหน้าเปลี่ยนตามอารมณ์ ถ้าตัวละครมีรูปสีหน้าจากส่วนเสริม Expressions ของ SillyTavern ภาพจะเปลี่ยนตามที่เขาพูด (ดีใจ เศร้า โกรธ เขิน ฯลฯ) ถ้าไม่มีใช้รูปโปรไฟล์',
+    'บทหลักสั่งวิดีโอคอลได้ด้วย call ที่มี video:true',
+    'คอลกลุ่ม ปุ่มโทรในแชทกลุ่มใช้ได้แล้ว ทุกคนในกลุ่มคุยกันเองในสาย แทรกกันได้เหมือนเพื่อนจริง และบทหลักเริ่มคอลกลุ่มได้เอง',
+    'สายซ้อน คุยอยู่แล้วมีคนโทรเข้า ขึ้นแถบให้เลือกปฏิเสธหรือวางสายนี้แล้วรับ ไม่รับใน 20 วินาทีกลายเป็นสายที่ไม่ได้รับ วางสายเดิมแล้วสายที่รออยู่จะดังต่อ',
+    'สายหลุด เปิดโหมดเครื่องบินหรือสัญญาณหายระหว่างคุย สายตัดทันที และบทหลักสั่งให้สายหลุดได้ (เข้าลิฟต์ ลอดอุโมงค์)',
+    'เบอร์ไม่รู้จักโทรเข้า ขึ้นว่าไม่ทราบชื่อผู้โทร',
+    'ประวัติการโทรจำว่าสายไหนเป็นวิดีโอ เป็นกลุ่ม หรือหลุดกลางคัน',
+    'แก้บั๊ก: โทรออกแล้ววางเร็ว ๆ แล้วมีสายเข้าพอดี สายนั้นเคยถูกต่อเองโดยไม่ได้กดรับ',
+   ],
+   tip: 'คอลกลุ่มและสายหลุดจากบทหลักต้องเปิดโมดูลกลุ่มและโทรในหน้าสะพานเชื่อม' },
+
  { v: '2.54.0', title: 'ฟีดคึกคัก: ไลฟ์สด เทรนด์ แท็กในรูป รีลส์ สำหรับคุณ โฆษณา โพสต์แซะ',
    lines: [
     'ไลฟ์สด ตัวละครเปิดไลฟ์ มีวงแหวน LIVE บนฟีด เข้าไปดูแล้วคอมเมนต์ไหลขึ้นเรื่อย ๆ ยอดคนดูขยับ หัวใจลอย พิมพ์คอมเมนต์เองได้ และบทหลักรู้ว่าเราคอมเมนต์อะไร',
@@ -26812,6 +26843,8 @@ function ppApplySyncEvent(rawEv) {
   return { ok: true, label: `สเตตัสของ ${dname(c)}` };
  }
 
+ const clR = ppClApplyEvent(type, ev); // ★ [2.55.0] คอลกลุ่ม สายหลุด
+ if (clR) return clR;
  const fdR = ppFdApplyEvent(type, ev); // ★ [2.54.0] ไลฟ์ เทรนด์ โฆษณา แอคหลุมโดนจับ
  if (fdR) return fdR;
  const chR = ppChApplyEvent(type, ev); // ★ [2.53.0] อ่านแล้ว พิมพ์แล้วหยุด รีแอค แก้ข้อความ แคปหลุด เบอร์แปลก
@@ -26878,7 +26911,7 @@ function ppApplySyncBatchInner(payload) {
   if (blk) { blocked++; ppPushSyncEvent(false, t, '', `${dname(blk)} ถูกบล็อกอยู่`); ppLogBot('chat', `${dname(blk)} พยายามติดต่อ ${getUserDisplayName()} แต่ถูกบล็อกไว้ ข้อความไม่ถึง`); return; }
   try {
    const r = ppApplySyncEvent(ev);
-   try { const nev = ppNormalizeSyncEvent(ev) || {}; ppPxAfterEvent(nev.type, nev, r); ppChAfterEvent(nev.type, nev, r); ppFdAfterEvent(nev.type, nev, r); } catch {} // ★ [2.50.0] [2.53.0]
+   try { const nev = ppNormalizeSyncEvent(ev) || {}; ppPxAfterEvent(nev.type, nev, r); ppChAfterEvent(nev.type, nev, r); ppFdAfterEvent(nev.type, nev, r); ppClAfterEvent(nev.type, nev); } catch {} // ★ [2.50.0] [2.53.0]
    if (r.ok) {
     applied++;
     if (r.label) labels.push(r.label);
@@ -28151,7 +28184,7 @@ function injectPhone() {
   return;
  }
  if (t.closest('#pp-chat-menu-btn')) return ppChatMenu();
- if (t.closest('#pp-chat-call-btn')) return ppStartCall();
+ if (t.closest('#pp-chat-call-btn')) return ppActiveGroup ? ppClStartGroupCall(ppActiveGroup) : ppStartCall(); // ★ [2.55.0]
  if (t.closest('#pp-msg-menu-btn')) return ppMsgListMenu();
  if (t.closest('#pp-star-banner')) return ppNav('starred');
  if (t.closest('#pp-group-new-btn')) { ppGroupDraft = null; return ppNav('groupnew'); }
@@ -30673,6 +30706,7 @@ function ppPxApplyStatus() {
   const fk = ppPxFocus();
   if (fo) fo.innerHTML = fk ? (ICON[PP_PX_FOCUS[fk].icon] || ICON.moon) : '';
   f.classList.toggle('pp-nosignal', !!ppPx().noSignal && !ppCtrl().air);
+  if (typeof ppCall !== 'undefined' && ppCall && ppCall.connected && ppPxOffline()) ppClDrop(ppPxOfflineReason()); // ★ [2.55.0] สัญญาณหาย = สายหลุด
   f.classList.toggle('pp-charging', sim && !!b.charging);
   f.classList.toggle('pp-battlow', sim && lv <= 20 && !b.charging);
   ppBrApplyA11y();
@@ -31685,6 +31719,10 @@ async function ppPxClick(e) {
   case 'charge-on': ppPxSetCharging(true); return;
   case 'ch-filter': return ppChToggleFilter(el.dataset.k);
   case 'live-open': return ppFdOpenLive(el.dataset.id);
+  case 'cl-video': return ppClToggleVideo();
+  case 'cl-cam': if (ppCall) { ppCall.camOff = !ppCall.camOff; ppClApplyVideo(); } return;
+  case 'cl-wait-no': return ppClWaitAnswer(false);
+  case 'cl-wait-yes': return ppClWaitAnswer(true);
   case 'live-close': clearInterval(ppFdLiveTimer); document.getElementById('pp-fd-live')?.remove(); return;
   case 'live-send': { const b = document.getElementById('pp-fd-live'); if (b && b._live) ppFdLiveSend(b._live); return; }
   case 'live-heart': ppFdHeart(); ppFdHeart(); return;
@@ -31789,7 +31827,7 @@ function ppPxInit() {
  if (!document.getElementById('pp-px-css')) {
   const s = document.createElement('style');
   s.id = 'pp-px-css';
-  s.textContent = PP_PX_CSS + PP_BR_CSS + PP_CH_CSS + PP_FD_CSS;
+  s.textContent = PP_PX_CSS + PP_BR_CSS + PP_CH_CSS + PP_FD_CSS + PP_CL_CSS;
   document.head.appendChild(s);
  }
  f.addEventListener('click', ppPxClick, true);
@@ -33545,6 +33583,300 @@ const PP_FD_CSS = `
 @media (prefers-reduced-motion: reduce){.pp-fd-live-hearts span,.pp-fd-live-line{animation:none !important;}}
 `;
 console.log(`[pocket-phone] ${PP_VERSION} ท่อน 9 พร้อม - ฟีดคึกคัก`);
+
+// ══════════════════════════════════════════════════════════
+// pocket-phone/index.js — 2.55.0 — ท่อน 10 (โทรสมจริง)
+// ★ [2.55.0] วิดีโอคอล (สีหน้าเปลี่ยนตามอารมณ์) · คอลกลุ่ม · สายซ้อน · สายหลุด · ผู้โทรไม่ทราบชื่อ
+// ══════════════════════════════════════════════════════════
+
+Object.assign(PP_TYPE_ALIAS, {
+ call_drop: ['call_drop', 'dropped_call', 'signal_lost', 'call_cut'],
+ group_call: ['group_call', 'conference_call', 'call_group'],
+});
+Object.assign(PP_TYPE_MOD, { call_drop: 'groupcall', group_call: 'groupcall' });
+if (!PP_SENDER_TYPES.includes('group_call')) PP_SENDER_TYPES.push('group_call');
+PP_MOD_TYPES.groupcall = (PP_MOD_TYPES.groupcall || []).concat(['group_call', 'call_drop']);
+function ppClPromptLines() {
+ return [
+  `  call extras — add "video":true for a video call.`,
+  `  group_call — someone starts a call with a whole group chat. {"type":"group_call","group":"Group Name","from":"Name"}`,
+  `  call_drop — the ongoing call cuts out (tunnel, lift, bad signal). {"type":"call_drop","reason":"why"}`,
+ ];
+}
+
+// ── วิดีโอคอล: สีหน้า ──
+const PP_CL_FACE_WORDS = {
+ joy: ['ฮ่า', '555', 'ดีใจ', 'สนุก', 'ยิ้ม', 'เย้', 'haha', 'lol', 'yay', 'glad', 'happy'],
+ love: ['รัก', 'คิดถึง', 'หอม', 'จุ๊บ', 'ที่รัก', 'love', 'miss you', 'darling'],
+ sadness: ['เสียใจ', 'ร้องไห้', 'เศร้า', 'ขอโทษ', 'เหงา', 'sorry', 'sad', 'cry'],
+ anger: ['โกรธ', 'บ้า', 'หงุดหงิด', 'เงียบ!', 'หุบปาก', 'angry', 'shut up', 'damn'],
+ surprise: ['หา?', 'จริงดิ', 'เฮ้ย', 'อะไรนะ', 'ตกใจ', 'what?', 'really?', 'no way'],
+ fear: ['กลัว', 'น่ากลัว', 'ช่วยด้วย', 'scared', 'afraid'],
+ embarrassment: ['เขิน', 'อาย', 'แหม', 'embarrass', 'blush'],
+};
+const PP_CL_FACES = ['neutral', 'joy', 'love', 'sadness', 'anger', 'surprise', 'fear', 'embarrassment'];
+function ppClDetectFace(text) {
+ const t = String(text || '').toLowerCase();
+ for (const f of Object.keys(PP_CL_FACE_WORDS)) if (PP_CL_FACE_WORDS[f].some(w => t.includes(w))) return f;
+ return '';
+}
+const ppClSpriteCache = new Map();
+/** หารูปสีหน้าจากส่วนเสริม Expressions ของ SillyTavern (/characters/<ชื่อ>/<อารมณ์>.png) ไม่มีก็ใช้รูปโปรไฟล์ */
+function ppClSprite(c, face) {
+ return new Promise(resolve => {
+  const st = listStCharacters().find(x => x.id === (c && c.id));
+  if (!st || !face) return resolve(c && c.avatar || '');
+  const key = st.name + '|' + face;
+  if (ppClSpriteCache.has(key)) return resolve(ppClSpriteCache.get(key) || c.avatar || '');
+  const tryExt = exts => {
+   if (!exts.length) { ppClSpriteCache.set(key, ''); return resolve(c.avatar || ''); }
+   const url = `/characters/${encodeURIComponent(st.name)}/${face}.${exts[0]}`;
+   const img = new Image();
+   img.onload = () => { ppClSpriteCache.set(key, url); resolve(url); };
+   img.onerror = () => tryExt(exts.slice(1));
+   img.src = url;
+  };
+  tryExt(['png', 'webp', 'gif']);
+ });
+}
+async function ppClSetFace(face) {
+ if (!ppCall || !ppCall.video || ppCall.group) return;
+ const layer = document.getElementById('pp-cl-video');
+ if (!layer) return;
+ const f = PP_CL_FACES.includes(face) ? face : 'neutral';
+ ppCall.face = f;
+ const url = await ppClSprite(ppCall.c, f);
+ layer.style.backgroundImage = url ? `url("${url}")` : '';
+ layer.classList.toggle('no-img', !url);
+ layer.dataset.face = f;
+ layer.classList.remove('bump'); void layer.offsetWidth; layer.classList.add('bump');
+}
+function ppClUserAvatar() {
+ const pid = currentUserPersonaId();
+ return pid ? `/User Avatars/${pid}` : '';
+}
+function ppClApplyVideo() {
+ const scr = document.getElementById('pp-scr-call');
+ if (!scr) return;
+ const on = !!(ppCall && ppCall.video && !ppCall.group);
+ scr.classList.toggle('pp-cl-video-on', on);
+ let layer = document.getElementById('pp-cl-video');
+ let self = document.getElementById('pp-cl-self');
+ if (!on) { layer?.remove(); self?.remove(); return; }
+ if (!layer) {
+  layer = document.createElement('div');
+  layer.id = 'pp-cl-video';
+  scr.insertBefore(layer, scr.children[1] || null);
+ }
+ if (!self) {
+  self = document.createElement('div');
+  self.id = 'pp-cl-self';
+  scr.appendChild(self);
+ }
+ const cam = ppCall.camOff ? '' : ppClUserAvatar();
+ self.innerHTML = ppCall.camOff ? `<span>กล้องปิด</span>` : (cam ? `<img src="${esc(cam)}" alt="" onerror="this.replaceWith(document.createRange().createContextualFragment('<b>${esc(getUserDisplayName()[0] || '?')}</b>'))">` : `<b>${esc(getUserDisplayName()[0] || '?')}</b>`);
+ self.dataset.px = 'cl-cam';
+ ppClSetFace(ppCall.face || 'neutral');
+}
+function ppClToggleVideo() {
+ if (!ppCall || ppCall.group) { ppToast('คอลกลุ่มเป็นเสียงอย่างเดียว'); return; }
+ ppCall.video = !ppCall.video;
+ ppClApplyVideo();
+ ppToast(ppCall.video ? 'เปิดวิดีโอแล้ว' : 'ปิดวิดีโอแล้ว');
+}
+function ppClStartVideo() {
+ ppStartCall();
+ if (ppCall) { ppCall.video = true; ppClApplyVideo(); const st = document.getElementById('pp-call-status'); if (st) st.textContent = 'กำลังวิดีโอคอล…'; }
+}
+/** อ่าน [FACE x] จากคำตอบ ถ้าไม่มีเดาจากคำพูด */
+function ppClFaceFromRaw(raw, lines) {
+ if (!ppCall || !ppCall.video) return;
+ const m = String(raw || '').match(/\[FACE\s+([a-z]+)\]/i);
+ const f = m ? m[1].toLowerCase() : ppClDetectFace((lines || []).join(' '));
+ if (f) ppClSetFace(f);
+}
+function ppClVideoPromptLine() {
+ if (!ppCall || !ppCall.video || ppCall.group) return null;
+ return `This is a VIDEO call — you can see each other's faces. You may briefly react to what you see, but still only in spoken quoted lines. At the very end add one line [FACE joy|love|sadness|anger|surprise|fear|embarrassment|neutral] for your current expression.`;
+}
+
+// ── คอลกลุ่ม ──
+function ppClStartGroupCall(g, incoming, starterId) {
+ if (!g) return;
+ if (ppCall) { ppToast('มีสายอื่นอยู่'); return; }
+ if (ppPxOffline()) { ppToast(`โทรไม่ได้ · ${ppPxOfflineReason()}`); return; }
+ const members = groupMemberContacts(g).filter(c => !isBlocked(c.id));
+ if (!members.length) { ppToast('กลุ่มนี้ไม่มีสมาชิก'); return; }
+ const pseudo = { id: g.id, name: g.name, avatar: '' };
+ ppCall = { c: pseudo, group: g.id, members: members.map(m => m.id), starter: starterId || '', incoming: !!incoming, connected: false, startTs: 0, timer: null, generating: false, transcript: [] };
+ ppRenderCallScreen(pseudo, incoming ? `คอลกลุ่มเรียกเข้า${starterId ? ' จาก ' + cname(starterId) : ''}` : 'กำลังโทรกลุ่ม…', !!incoming);
+ const av = document.getElementById('pp-call-av'); if (av) av.innerHTML = `<div class="pp-cl-grid">${members.slice(0, 6).map(m => `<span>${contactAvatarHTML(m, 64)}<i>${esc(dname(m))}</i></span>`).join('')}</div>`;
+ const sub = document.getElementById('pp-call-sub'); if (sub) sub.textContent = `คอลกลุ่ม · ${members.length} คน`;
+ if (incoming) {
+  if (!document.getElementById('pp-dialog')?.open) { islandNotify(pseudo, 'คอลกลุ่มเรียกเข้า'); ppOpen(); }
+  ppNav('call');
+  ppPlayRingtone(pseudo);
+  ppCall.missTimer = setTimeout(() => { if (ppCall && !ppCall.connected && ppCall.group === g.id) { ppStopRingtone(); ppEndCall(false); } }, 30000);
+  return;
+ }
+ ppNav('call');
+ ppPlayRingtone(pseudo);
+ setTimeout(() => { if (ppCall && ppCall.group === g.id) { ppConnectCall(); setTimeout(() => ppClGroupGenerate(true), 700); } }, 1800 + Math.random() * 1200);
+}
+async function ppClGroupGenerate(opener) {
+ if (!ppCall || !ppCall.group || !ppCall.connected || ppCall.generating) return;
+ const g = getGroup(ppCall.group);
+ const members = (ppCall.members || []).map(findContact).filter(Boolean);
+ const inp = document.getElementById('pp-call-input');
+ if (inp && inp.value.trim() && !opener) ppCallSend();
+ ppCall.generating = true;
+ const ty = document.getElementById('pp-call-typing');
+ if (ty) ty.classList.add('show');
+ try {
+  const un = getUserDisplayName();
+  const hist = getThread(ppCall.group).filter(m => m.from !== 'sys').slice(-12).map(m => `${m.from === 'me' ? un : (m.senderName || '?')}: ${String(msgPreview(m)).replace(/^[^:]{1,30}:\s*/, '')}`).join('\n');
+  const tr = (ppCall.transcript || []).slice(-20).map(m => m.from === 'me' ? `${un}: ${m.text}` : m.text).join('\n');
+  const who = members.map(m => { const p = String(getEffectivePersona(m.id) || '').replace(/\s+/g, ' ').slice(0, 260); return `- ${dname(m)}${p ? ': ' + p : ''}`; }).join('\n');
+  const prompt = [
+   `HARD BOUNDARY — this is a phone app, not the story. Do NOT narrate. Only spoken lines.`,
+   `[Group voice call in "${g ? g.name : 'group'}" with ${un}. People on the call:]`,
+   who,
+   hist ? `Recent group chat (they remember it):\n${hist}` : null,
+   ppRealTimeLine('The call is happening right now. ') || null,
+   tr ? `\nThe call so far:\n${tr}` : null,
+   opener ? `\nThe call just connected. Some of them greet ${un} and each other.` : `\nContinue the call naturally — reply to ${un}'s last line, and let them talk over or react to each other like real friends on a call.`,
+   `Write 2 to 6 short spoken lines total, from whichever people would actually speak. Not everyone has to speak every time.`,
+   `FORMAT (strict) — every line is: Name: "what they say"`,
+   `Example:\n${members[0] ? dname(members[0]) : 'Name'}: "ฮัลโหล ได้ยินกันไหม"`,
+   `If everyone is ready to hang up, end with one goodbye line and a final line [HANGUP].`,
+   `Same language as ${un} (Thai if Thai).`,
+  ].filter(Boolean).join('\n');
+  const raw = await genWithRetry(prompt, 3);
+  const out = [];
+  String(raw || '').split(/\n+/).forEach(line => {
+   const m = line.match(/^\s*\**\s*([^:"“”\[\]]{1,30}?)\s*\**\s*[:：]\s*["“](.+?)["”]\s*$/);
+   if (!m) return;
+   const c = ppSyncFindContact(m[1].trim(), false);
+   if (!c || !(ppCall.members || []).includes(c.id)) return;
+   out.push({ c, text: stripEmoji(m[2].trim()) });
+  });
+  if (ty) ty.classList.remove('show');
+  if (!out.length) out.push({ c: members[0], text: '…' });
+  for (const x of out.slice(0, 6)) {
+   if (!ppCall) break;
+   const line = `${dname(x.c)}: ${x.text}`;
+   ppCallEmit(line, 'them');
+   ppCall.transcript.push({ from: 'them', text: line });
+   await new Promise(r => setTimeout(r, 700 + Math.min(2400, x.text.length * 50)));
+  }
+  if (/\[HANGUP\]/i.test(raw) && ppCall) { await new Promise(r => setTimeout(r, 1200)); if (ppCall) ppEndCall(); }
+ } catch (e) {
+  if (ty) ty.classList.remove('show');
+  ppCallEmit('สายไม่ชัด ลองใหม่นะ', 'them');
+  console.error('[pocket-phone] group call gen', e);
+ } finally {
+  if (ppCall) ppCall.generating = false;
+  const b = document.getElementById('pp-call-gen'); if (b) b.disabled = false;
+ }
+}
+
+// ── สายซ้อน ──
+let ppClWaitTimer = null;
+function ppClCallWaiting(c) {
+ const scr = document.getElementById('pp-scr-call');
+ document.getElementById('pp-cl-wait')?.remove();
+ clearTimeout(ppClWaitTimer);
+ const box = document.createElement('div');
+ box.id = 'pp-cl-wait';
+ box.dataset.cid = c.id;
+ box.innerHTML = `${contactAvatarHTML(c, 40)}<span><b>${esc(dname(c))}</b><span>กำลังโทรเข้า · สายซ้อน</span></span>
+  <button class="pp-cl-wait-no" data-px="cl-wait-no">${ICON.hangup}</button>
+  <button class="pp-cl-wait-yes" data-px="cl-wait-yes" title="วางสายนี้แล้วรับ">${ICON.phoneApp}</button>`;
+ (scr || document.getElementById('pp-frame'))?.appendChild(box);
+ if (ppCurrentScreen !== 'call') islandNotify(c, 'สายซ้อนเรียกเข้า');
+ ppClWaitTimer = setTimeout(() => { if (document.getElementById('pp-cl-wait')) { box.remove(); ppPxMissCall(c, 'สายซ้อน ไม่ได้รับ'); } }, 20000);
+}
+function ppClWaitAnswer(yes) {
+ const box = document.getElementById('pp-cl-wait');
+ if (!box) return;
+ const c = findContact(box.dataset.cid);
+ box.remove();
+ clearTimeout(ppClWaitTimer);
+ if (!c) return;
+ if (!yes) { ppPxMissCall(c, 'ปฏิเสธระหว่างคุยอีกสาย'); return; }
+ if (ppCall) ppEndCall(false);
+ setTimeout(() => { ppIncomingCall(c); setTimeout(() => ppAcceptCall(), 150); }, 450);
+}
+
+// ── สายหลุด ──
+function ppClDrop(reason) {
+ if (!ppCall || !ppCall.connected) return false;
+ const c = ppCall.c;
+ const why = String(reason || 'สัญญาณไม่ดี').slice(0, 60);
+ ppCall.dropped = why;
+ ppEndCall(false);
+ const sb = document.getElementById('pp-callend-sub'); if (sb) sb.textContent = `สายหลุด · ${why}`;
+ ppLog('call', `สายกับ ${dname(c)} หลุดกลางคัน (${why})`);
+ ppLogBot('call', `สายที่คุยกับ ${getUserDisplayName()} หลุดกลางคัน (${why})`);
+ ppToast(`สายหลุด · ${why}`);
+ return true;
+}
+
+// ── เหตุการณ์ ──
+function ppClApplyEvent(type, ev) {
+ if (type === 'call_drop') {
+  return ppClDrop(ev.reason || ev.text) ? { ok: true, label: 'สายหลุด' } : { ok: false, noop: true };
+ }
+ if (type === 'group_call') {
+  const g = ppSyncFindGroup(ev.group || ev.groupName || ev.name, ev.members);
+  if (!g) return { ok: false, reason: 'ไม่พบกลุ่มนี้' };
+  const starter = ppSyncFindContact(ev.from || ev.sender, false);
+  if (ppCall) { pushThreadMsg(g.id, { from: 'sys', type: 'sysline', text: `${starter ? dname(starter) : 'มีคน'} เริ่มคอลกลุ่ม แต่คุณติดสายอื่นอยู่` }); return { ok: true, label: 'คอลกลุ่ม (สายไม่ว่าง)' }; }
+  if (ppPxOffline() || ppPxSilenced(null)) { pushThreadMsg(g.id, { from: 'sys', type: 'sysline', text: `${starter ? dname(starter) : 'มีคน'} เริ่มคอลกลุ่ม · ไม่ได้รับ` }); bumpUnread(g.id, 1); return { ok: true, label: 'คอลกลุ่มที่ไม่ได้รับ' }; }
+  ppClStartGroupCall(g, true, starter ? starter.id : '');
+  return { ok: true, label: `คอลกลุ่ม ${g.name}` };
+ }
+ return null;
+}
+function ppClAfterEvent(type, ev) {
+ try {
+  if (type !== 'call' || !(ev.video === true || /true|yes|1/i.test(String(ev.video || '')))) return;
+  if (!ppCall || ppCall.connected) return;
+  ppCall.video = true;
+  ppClApplyVideo();
+  const st = document.getElementById('pp-call-status'); if (st) st.textContent = 'วิดีโอคอลเรียกเข้า';
+ } catch {}
+}
+
+const PP_CL_CSS = `
+#pp-cl-video{position:absolute;inset:0;z-index:0;background:#111 center/cover no-repeat;transition:background-image .35s ease;}
+#pp-cl-video.no-img{background:radial-gradient(90% 70% at 50% 40%,#3a3a44,#0c0c10);}
+#pp-cl-video::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.45),rgba(0,0,0,0) 30%,rgba(0,0,0,0) 55%,rgba(0,0,0,.7));}
+#pp-cl-video.bump{animation:pp-cl-bump .5s ease;}
+@keyframes pp-cl-bump{0%{transform:scale(1)}40%{transform:scale(1.025)}100%{transform:scale(1)}}
+#pp-scr-call.pp-cl-video-on .pp-call-bg{display:none;}
+#pp-scr-call.pp-cl-video-on #pp-call-av{display:none;}
+#pp-scr-call.pp-cl-video-on .pp-call-top{padding-top:30px;}
+#pp-scr-call.pp-cl-video-on .pp-call-name{font-size:22px;}
+#pp-cl-self{position:absolute;right:14px;top:96px;width:92px;height:128px;border-radius:16px;overflow:hidden;z-index:5;background:#2c2c2e;border:1.5px solid rgba(255,255,255,.35);box-shadow:0 8px 24px rgba(0,0,0,.5);display:flex;align-items:center;justify-content:center;color:#fff;cursor:pointer;}
+#pp-cl-self img{width:100%;height:100%;object-fit:cover;}
+#pp-cl-self b{font-size:34px;}
+#pp-cl-self span{font-size:11px;opacity:.7;}
+.pp-cl-grid{display:grid;grid-template-columns:repeat(3,1fr);gap:12px 14px;margin-top:6px;}
+.pp-cl-grid span{display:flex;flex-direction:column;align-items:center;gap:4px;}
+.pp-cl-grid i{font-style:normal;font-size:11px;color:rgba(235,235,245,.8);max-width:72px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+#pp-cl-wait{position:absolute;left:12px;right:12px;top:58px;z-index:20;display:flex;align-items:center;gap:10px;padding:10px 12px;border-radius:20px;
+ background:rgba(30,30,34,.92);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);color:#fff;box-shadow:0 10px 30px rgba(0,0,0,.5);animation:pp-px-up .35s both;}
+#pp-cl-wait > :first-child{flex:0 0 40px;width:40px !important;height:40px !important;min-width:40px;}
+#pp-cl-wait > span{flex:1;min-width:0;display:flex;flex-direction:column;font-size:12px;}
+#pp-cl-wait b{font-size:15px;}
+#pp-cl-wait button{width:42px;height:42px;border-radius:50%;border:none;color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;}
+#pp-cl-wait button svg{width:20px;height:20px;}
+.pp-cl-wait-no{background:#ff453a;}
+.pp-cl-wait-yes{background:#30d158;}
+.pp-call-barbtn.on{background:#fff !important;color:#000 !important;}
+`;
+console.log(`[pocket-phone] ${PP_VERSION} ท่อน 10 พร้อม - โทรสมจริง`);
 
 // ══════════════════════════════════════════════════════════
 // BOOT

@@ -27,7 +27,7 @@ function makeEnv(stateInit) {
   w.HTMLDialogElement && (w.HTMLDialogElement.prototype.showModal = function () { this.open = true; });
   w.matchMedia = w.matchMedia || (() => ({ matches: false, addEventListener() {}, removeEventListener() {} }));
   w.console = console;
-  w.HTMLMediaElement.prototype.pause = function () {}; w.HTMLMediaElement.prototype.play = function () { return Promise.resolve(); };
+  w.HTMLMediaElement.prototype.pause = function () {}; w.HTMLMediaElement.prototype.play = function () { return Promise.resolve(); }; w.HTMLMediaElement.prototype.load = function () {};
   const errors = [];
   w.addEventListener('error', e => errors.push(e.error || e.message));
   w.eval(fs.readFileSync(SRC, 'utf8') + '\n;window.__pp = function (s) { return eval(s); };');
