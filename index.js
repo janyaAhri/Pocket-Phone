@@ -1,4 +1,5 @@
 // pocket-phone/index.js
+// ★ [2.56.0] ท่อน 11 "โลกในเรื่อง" (ppWd*) — time_skip/weather/rumor · cfg.world · wdStoryTime/wdOffscene/wdWeatherFx
 // ★ [2.55.0] ท่อน 10 "โทรสมจริง" (ppCl*) — video/[FACE]/group_call/call_drop/สายซ้อน
 // ★ [2.54.0] ท่อน 9 "ฟีดคึกคัก" (ppFd*) — live/live_end/trend/ad/alt_caught · post: tags/reel/about · สำหรับคุณ
 // ★ [2.53.0] ท่อน 8 "แชทสมจริง" (ppCh*) — seen/typing/msg_react/edit/leak/unknown/reveal · แปล · บล็อกจริง · แชทลับ · ค้นตามชนิด · ธีมจากรูป
@@ -27,7 +28,7 @@
 // getContext ล้วน · ไม่มี import/export · lazy + try/catch
 // ⚠️ รันเดี่ยวไม่ได้ ต้องแปะครบ 4 ท่อน
 
-const PP_VERSION = '2.55.0';
+const PP_VERSION = '2.56.0';
 const MODULE_NAME = 'pocket-phone';
 
 // ══════════════════════════════════════════════════════════
@@ -1199,7 +1200,7 @@ function findPost(id) { return getFeedPosts().find(p => p.id === id); }
 const TH_DAYS = ['อา.', 'จ.', 'อ.', 'พ.', 'พฤ.', 'ศ.', 'ส.'];
 const TH_MONTHS = ['ม.ค.', 'ก.พ.', 'มี.ค.', 'เม.ย.', 'พ.ค.', 'มิ.ย.', 'ก.ค.', 'ส.ค.', 'ก.ย.', 'ต.ค.', 'พ.ย.', 'ธ.ค.'];
 const TH_MONTHS_FULL = ['มกราคม', 'กุมภาพันธ์', 'มีนาคม', 'เมษายน', 'พฤษภาคม', 'มิถุนายน', 'กรกฎาคม', 'สิงหาคม', 'กันยายน', 'ตุลาคม', 'พฤศจิกายน', 'ธันวาคม'];
-function ppNow() { const d = new Date(); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; }
+function ppNow() { const d = ppWdDate(); return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; }
 function fmtHM(d) { return `${d.getHours()}:${String(d.getMinutes()).padStart(2, '0')}`; }
 
 /* [2.39.0] เอฟเฟกต์เต็มจอในแชท — ตรวจจับคำในข้อความแล้วเล่นแบบ iMessage
@@ -1251,7 +1252,7 @@ function ppGxFullscreenFx(type) {
 }
 
 function ppDateLabel() {
- const d = new Date();
+ const d = ppWdDate(); // ★ [2.56.0] เวลาในเรื่อง
  return `${TH_DAYS[d.getDay()]} ${d.getDate()} ${TH_MONTHS[d.getMonth()]}`;
 }
 function fmtListTime(ts) {
@@ -4136,7 +4137,7 @@ window.PP_ECHO_DIAG = () => {
  * รุ่นนี้ย้ายออกไปเป็น system message แยก สร้างใหม่ทุกครั้งที่ interceptor ทำงาน
  * อ่านนาฬิกาตัวเดียวกับที่โชว์มุมซ้ายบนของมือถือ คือ new Date() สด ๆ */
 function ppRealTimeStamp() {
- const d = new Date();
+ const d = ppWdDate(); // ★ [2.56.0] เปิดเวลาในเรื่อง = ใช้เวลาในเรื่อง
  const dow = ['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'][d.getDay()];
  const h = d.getHours();
  const part = h < 5 ? 'ดึกมาก' : h < 8 ? 'เช้าตรู่' : h < 11 ? 'ตอนเช้า'
@@ -11127,7 +11128,7 @@ function ppShowLock() {
  if (!getCfg().lockOn) return false;
  const f = document.getElementById('pp-frame');
  if (!f || document.getElementById('pp-lock')) return true;
- const d = new Date();
+ const d = ppWdDate(); // ★ [2.56.0]
  const un = (getCfg().unread || {});
  const n = Object.values(un).reduce((a, b) => a + (+b || 0), 0);
  const box = document.createElement('div');
@@ -11135,6 +11136,7 @@ function ppShowLock() {
  box.innerHTML = `
   <div class="pp-lock-clock">${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}</div>
   <div class="pp-lock-date">${esc(ppDateLabel())}</div>
+  ${(() => { const wx = ppWdWeather(); return wx ? `<div class="pp-lock-wx">${ppWdWxMeta(wx.kind).icon}<span>${esc(wx.cond)}${wx.temp != null ? ` ${wx.temp}°` : ''}</span></div>` : ''; })()}
   ${n ? `<div class="pp-lock-notif">${ICON.messages}<span>${n} ข้อความที่ยังไม่อ่าน</span></div>` : ''}
   ${ppPxLockStackHTML()}
   <div class="pp-lock-hint">ปัดขึ้นเพื่อปลดล็อก</div>`;
@@ -21033,6 +21035,17 @@ const PP_GUIDE_FAQ = [
    text: 'ใช้รูปเล็กลง หรือใช้ลิงก์แทนการดึงจากเครื่อง · รูปจากลิงก์ไม่กินพื้นที่และส่งต่อไปเครื่องคนอื่นได้ด้วย' },
 ];
 const PP_CHANGELOG = [
+ { v: '2.56.0', title: 'โลกในเรื่อง: เวลาในเรื่อง ข้ามเวลา สภาพอากาศ ข่าวลือแพร่ เพื่อนนอกฉากรู้ข่าว',
+   lines: [
+    'เวลาในเรื่อง เปิดได้ที่ตั้งค่า > ชีวิตจริง > โลกในเรื่อง นาฬิกาบนแถบสถานะ หน้าหลัก หน้าล็อก และเวลาที่บอกบอท เดินตามเรื่องแทนเวลาจริง ปิดไว้ตามเดิม',
+    'ข้ามเวลา เรื่องข้ามไปเช้าวันใหม่หรือสามวันต่อมา บทหลักส่ง time_skip มา นาฬิกามือถือข้ามตาม ในแชทขึ้นเส้นคั่น เช่น 8 ชั่วโมงต่อมา กดเลื่อนเองได้ +1 ชม. พรุ่งนี้เช้า ตั้งเวลา หรือกลับเวลาจริง',
+    'สภาพอากาศในเรื่อง บทหลักบอกว่าฝนตก พายุ หิมะ หมอก แดดจัด มือถือจำไว้ ขึ้นในวิดเจ็ตวันนี้และหน้าล็อก บอทได้รู้ทุกเทิร์นเพื่อให้ฉากต่อเนื่อง ตั้งเองได้ ข้ามเวลาไปนานอากาศเดิมจะหมดอายุเอง',
+    'เอฟเฟกต์อากาศบนหน้าจอหลัก ฝนตก พายุมีฟ้าแลบ หิมะโปรย หมอกลอย ปิดได้ และเคารพการตั้งค่าลดการเคลื่อนไหว',
+    'ข่าวลือแพร่ เรื่องในโรลถูกเล่าต่อ ๆ กัน คนที่ได้ยินจะทยอยทักมาเล่าตามเวลา แต่ละคนพูดด้วยน้ำเสียงตัวเอง ไม่ได้ระบุว่าใครเล่าต่อ ระบบเลือกคนที่ไม่ได้อยู่ในฉากและไม่ใช่เจ้าของเรื่อง ออฟไลน์อยู่ก็รอจนกลับมาออนไลน์',
+    'เพื่อนนอกฉากรู้ข่าว เกิดเรื่องใหญ่ในโรล เพื่อนหรือครอบครัวที่ไม่ได้อยู่ในฉากทักมาถามได้ เฉพาะเรื่องใหญ่ ไม่ใช่ทุกเทิร์น',
+   ],
+   tip: 'ข้ามเวลา อากาศ และข่าวลือ อยู่ในโมดูลชีวิตจริงของหน้าสะพานเชื่อม' },
+
  { v: '2.55.0', title: 'โทรสมจริง: วิดีโอคอล คอลกลุ่ม สายซ้อน สายหลุด ผู้โทรไม่ทราบชื่อ',
    lines: [
     'วิดีโอคอล กดจากเมนูแชทหรือปุ่มวิดีโอระหว่างคุย เห็นหน้าอีกฝ่ายเต็มจอ มีกล้องเราเป็นหน้าต่างเล็กมุมจอ แตะเพื่อปิดกล้อง',
@@ -26843,6 +26856,8 @@ function ppApplySyncEvent(rawEv) {
   return { ok: true, label: `สเตตัสของ ${dname(c)}` };
  }
 
+ const wdR = ppWdApplyEvent(type, ev); // ★ [2.56.0] ข้ามเวลา อากาศ ข่าวลือ
+ if (wdR) return wdR;
  const clR = ppClApplyEvent(type, ev); // ★ [2.55.0] คอลกลุ่ม สายหลุด
  if (clR) return clR;
  const fdR = ppFdApplyEvent(type, ev); // ★ [2.54.0] ไลฟ์ เทรนด์ โฆษณา แอคหลุมโดนจับ
@@ -30795,6 +30810,7 @@ function ppPxStateMsg(chat) {
   const rows = [];
   const eraLine = ppEraBotLine(); // ★ [2.51.0] มือถือในเรื่องเป็นยุคไหน
   if (eraLine) rows.push(eraLine);
+  ppWdStateLines().forEach(l => rows.push(l)); // ★ [2.56.0] เวลา อากาศ ข่าวลือในเรื่อง
   if (cfg.pxRpState !== false) {
    const lv = ppPxBattLevel();
    const b = ppPxBatt();
@@ -31459,6 +31475,7 @@ function ppPxLifePrompt() {
   `  delivery — someone orders something delivered to ${un}. {"type":"delivery","from":"Name","item":"what","eta":20}`,
   `  phone_state — the story physically affects ${un}'s phone (dropped in water, plugged in, lost signal underground). {"type":"phone_state","battery":5,"charging":true,"signal":false}`,
   `  missed_call can include a voicemail: {"type":"missed_call","from":"Name","voicemail":"exactly what they said"}`,
+  ...ppWdPromptLines(), // ★ [2.56.0]
  ].join('\n');
 }
 /** จัดการ event ชนิดใหม่ — คืน result หรือ null ถ้าไม่ใช่ของระบบนี้ */
@@ -31589,6 +31606,7 @@ function ppPxHomeUpdate(setBadge) {
   if (getCfg().pxBattSim !== false && (lv <= 30 || ppPxBatt().charging)) bits.push(`<div class="pp-px-tw-row">${ICON.bolt}<span>แบต ${lv}%${ppPxBatt().charging ? ' · กำลังชาร์จ' : ''}</span></div>`);
   const f = ppPxFocus();
   if (f) bits.push(`<div class="pp-px-tw-row">${ICON[PP_PX_FOCUS[f].icon] || ICON.moon}<span>โหมด${esc(PP_PX_FOCUS[f].label)}</span></div>`);
+  const wdRow = ppWdTodayRow(); if (wdRow) bits.unshift(wdRow); // ★ [2.56.0] อากาศ ข่าวลือ
   w.style.display = bits.length ? '' : 'none';
   w.innerHTML = bits.join('');
  } catch (e) { console.warn('[pocket-phone] px home', e); }
@@ -31667,7 +31685,8 @@ function ppPxLifePageHTML() {
    ${sw('pp-px-lockstack', cfg.pxLockStack !== false, 'กองแจ้งเตือนบนหน้าล็อก', '')}
    ${sw('pp-px-onehand', !!cfg.pxOneHand, 'โหมดมือเดียว', 'ดึงหน้าจอลงมาครึ่งทาง นิ้วโป้งเอื้อมถึงทุกปุ่ม แตะที่ว่างด้านบนเพื่อกลับ')}
    ${sw('pp-px-bigtext', !!cfg.pxBigText, 'ตัวหนังสือใหญ่', 'ฟองแชทและรายการอ่านง่ายขึ้นบนจอเล็ก')}
-  </div>`;
+  </div>
+  ${ppWdSettingsHTML()}`;
 }
 const PP_PX_SWITCHES = {
  'pp-px-battsim': 'pxBattSim', 'pp-px-battdie': 'pxBattCanDie', 'pp-px-queue': 'pxOfflineQueue', 'pp-px-focusfav': 'pxFocusFav',
@@ -31715,6 +31734,7 @@ async function ppPxClick(e) {
  const a = el.dataset.px;
  const p = ppPx();
  e.stopPropagation();
+ if (a.startsWith('wd-') && ppWdClick(a, el)) return; // ★ [2.56.0]
  switch (a) {
   case 'charge-on': ppPxSetCharging(true); return;
   case 'ch-filter': return ppChToggleFilter(el.dataset.k);
@@ -31802,6 +31822,8 @@ function ppPxChange(e) {
   if (key === 'pxBattSim' || key === 'pxBattCanDie') { if (!t.checked) { ppPxBatt().dead = false; } ppPxApplyStatus(); ppPxOnline(); }
   if (key === 'pxTodayWidget') updateHomeWidgets();
   if (key === 'eraHideApps') ppEraApply();
+  if (key === 'wdWeatherFx') ppWdApplyFx(); // ★ [2.56.0]
+  if (key === 'wdStoryTime') { document.querySelectorAll('.pp-clock').forEach(x => x.textContent = ppNow()); renderSetPage(); }
   if (key === 'pxOneHand' || key === 'pxBigText') ppBrApplyA11y();
   return;
  }
@@ -31818,6 +31840,7 @@ function ppPxTick() {
  try { ppPxBattTick(); } catch (e) { console.warn('[pocket-phone] px batt', e); }
  try { ppPxOrderTick(); } catch (e) { console.warn('[pocket-phone] px order', e); }
  try { ppPxCalTick(); } catch (e) { console.warn('[pocket-phone] px cal', e); }
+ try { ppWdFlush(); ppWdApplyFx(); } catch (e) { console.warn('[pocket-phone] wd', e); } // ★ [2.56.0]
  try { ppPxHomeUpdate(null); } catch {}
 }
 function ppPxInit() {
@@ -31827,7 +31850,7 @@ function ppPxInit() {
  if (!document.getElementById('pp-px-css')) {
   const s = document.createElement('style');
   s.id = 'pp-px-css';
-  s.textContent = PP_PX_CSS + PP_BR_CSS + PP_CH_CSS + PP_FD_CSS + PP_CL_CSS;
+  s.textContent = PP_PX_CSS + PP_BR_CSS + PP_CH_CSS + PP_FD_CSS + PP_CL_CSS + PP_WD_CSS;
   document.head.appendChild(s);
  }
  f.addEventListener('click', ppPxClick, true);
@@ -33877,6 +33900,336 @@ const PP_CL_CSS = `
 .pp-call-barbtn.on{background:#fff !important;color:#000 !important;}
 `;
 console.log(`[pocket-phone] ${PP_VERSION} ท่อน 10 พร้อม - โทรสมจริง`);
+
+// ══════════════════════════════════════════════════════════
+// pocket-phone/index.js — 2.56.0 — ท่อน 11 (โลกในเรื่อง)
+// ★ [2.56.0] เวลาในเรื่อง + ข้ามเวลา · สภาพอากาศในเรื่อง · ข่าวลือแพร่ · เพื่อนนอกฉากรู้ข่าว
+// ══════════════════════════════════════════════════════════
+
+Object.assign(PP_TYPE_ALIAS, {
+ time_skip: ['time_skip', 'timeskip', 'skip_time', 'time_jump', 'time_pass', 'later'],
+ weather: ['weather', 'weather_change', 'forecast', 'weather_update'],
+ rumor: ['rumor', 'rumour', 'gossip', 'word_spreads', 'hearsay'],
+});
+Object.assign(PP_TYPE_MOD, { time_skip: 'life', weather: 'life', rumor: 'life' });
+PP_MOD_TYPES.life = (PP_MOD_TYPES.life || []).concat(['time_skip', 'weather', 'rumor']);
+Object.assign(DEFAULTS, {
+ wdStoryTime: false,   // นาฬิกามือถือเดินตามเวลาในเรื่อง (ข้ามเวลาได้)
+ wdOffscene: true,     // เพื่อนที่ไม่อยู่ในฉากรู้ข่าวใหญ่แล้วทักมาได้
+ wdWeatherFx: true,    // ฝน หิมะ หมอก บนหน้าจอหลัก
+});
+Object.assign(PP_PX_SWITCHES, { 'pp-wd-story': 'wdStoryTime', 'pp-wd-offscene': 'wdOffscene', 'pp-wd-fx': 'wdWeatherFx' });
+
+function ppWd() {
+ const cfg = getCfg();
+ if (!cfg.world || typeof cfg.world !== 'object') cfg.world = {};
+ const w = cfg.world;
+ if (typeof w.offset !== 'number' || !isFinite(w.offset)) w.offset = 0;
+ if (!Array.isArray(w.rumors)) w.rumors = [];
+ return w;
+}
+function ppWdPromptLines() {
+ const un = getUserDisplayName();
+ const rows = [
+  `  time_skip — the story jumps forward in time (next morning, three days later). The phone clock follows. {"type":"time_skip","hours":8} or {"type":"time_skip","days":2} or {"type":"time_skip","to":"07:30"}`,
+  `  weather — the weather in the story changes or matters. {"type":"weather","cond":"heavy rain","temp":24,"place":"where"}`,
+  `  rumor — word about something spreads through people's circles; each person texts ${un} later in their own voice. {"type":"rumor","about":"who it is about","text":"what people are saying","spread":[{"from":"Name","text":"their message","delay":5}]}`,
+ ];
+ if (getCfg().wdOffscene !== false) rows.push(`  Off-scene friends — after a BIG story moment (fight, breakup, accident, confession, public drama), a friend or family member who is NOT in the scene but would plausibly hear about it may text ${un} about it (dm), in their own voice, knowing only what they could know. Only for big moments, not every turn.`);
+ return rows;
+}
+
+// ── เวลาในเรื่อง ──
+function ppWdNow() {
+ try { const cfg = getCfg(); return Date.now() + (cfg.wdStoryTime ? ppWd().offset : 0); } catch { return Date.now(); }
+}
+function ppWdDate() { return new Date(ppWdNow()); }
+function ppWdStoryOn() { try { return !!getCfg().wdStoryTime; } catch { return false; } }
+function ppWdFmtSpan(ms) {
+ const m = Math.round(Math.abs(ms) / 60000);
+ if (m < 60) return `${m} นาที`;
+ const h = Math.round(m / 60);
+ if (h < 24) return `${h} ชั่วโมง`;
+ const d = Math.round(h / 24);
+ return `${d} วัน`;
+}
+function ppWdClockLabel() {
+ const d = ppWdDate();
+ return `${TH_DAYS[d.getDay()]} ${d.getDate()} ${TH_MONTHS[d.getMonth()]} · ${fmtHM(d)}`;
+}
+/** คืนระยะเวลา (ms) ที่ต้องเลื่อนจาก event — 0 = อ่านไม่ออก */
+function ppWdSkipMs(ev) {
+ const num = v => { const n = parseFloat(v); return isFinite(n) && n > 0 ? n : 0; };
+ let ms = num(ev.minutes || ev.mins) * 60000 + num(ev.hours || ev.hrs || ev.h) * 3600000 + num(ev.days || ev.d) * 86400000 + num(ev.weeks) * 7 * 86400000;
+ if (ms) return ms;
+ const to = String(ev.to || ev.time || ev.until || ev.text || '').trim().toLowerCase();
+ const now = ppWdDate();
+ const at = (h, m) => { const t = new Date(now); t.setHours(h, m || 0, 0, 0); if (t <= now) t.setDate(t.getDate() + 1); return t - now; };
+ const hm = to.match(/(\d{1,2})[:.](\d{2})/);
+ if (hm) return at(+hm[1] % 24, +hm[2]);
+ if (/เช้า|morning|dawn/.test(to)) return at(7, 0);
+ if (/เที่ยง|noon|lunch/.test(to)) return at(12, 0);
+ if (/บ่าย|afternoon/.test(to)) return at(15, 0);
+ if (/เย็น|evening/.test(to)) return at(18, 0);
+ if (/ค่ำ|คืน|night/.test(to)) return at(21, 0);
+ if (/พรุ่งนี้|tomorrow|next day/.test(to)) return at(8, 0);
+ return 0;
+}
+function ppWdSkip(ms, why) {
+ if (!(ms > 0)) return false;
+ const w = ppWd();
+ const moved = getCfg().wdStoryTime;
+ if (moved) w.offset += Math.min(ms, 400 * 86400000);
+ w.lastSkip = { ms, ts: Date.now(), why: String(why || '').slice(0, 60) };
+ if (ms >= 6 * 3600000 && w.weather) w.weather.stale = true; // ข้ามไปนาน อากาศเดิมอาจไม่ใช่แล้ว
+ saveCfg();
+ try { document.querySelectorAll('.pp-clock').forEach(e => e.textContent = ppNow()); const dl = document.getElementById('pp-home-date'); if (dl) dl.textContent = ppDateLabel(); } catch {}
+ return true;
+}
+function ppWdResetTime() { ppWd().offset = 0; saveCfg(); ppToast('กลับมาใช้เวลาจริงแล้ว'); }
+
+// ── สภาพอากาศ ──
+const PP_WD_WX = [
+ ['storm', /ฟ้าร้อง|ฟ้าผ่า|พายุ|storm|thunder|typhoon|lightning/i, 'พายุฝนฟ้าคะนอง', 'drop'],
+ ['snow', /หิมะ|snow|blizzard/i, 'หิมะตก', 'cloud'],
+ ['rain', /ฝน|rain|drizzle|shower/i, 'ฝนตก', 'drop'],
+ ['fog', /หมอก|fog|mist|haze|ฝุ่น|pm ?2\.5|smog/i, 'หมอก', 'cloud'],
+ ['wind', /ลมแรง|wind|gale/i, 'ลมแรง', 'cloud'],
+ ['cloud', /เมฆ|ครึ้ม|cloud|overcast|grey|gray/i, 'เมฆมาก', 'cloud'],
+ ['hot', /ร้อน|hot|heat|scorch/i, 'ร้อนจัด', 'sun'],
+ ['sun', /แดด|ฟ้าใส|sun|clear|bright/i, 'แดดดี', 'sun'],
+ ['cold', /หนาว|เย็น|cold|chilly|freez/i, 'อากาศหนาว', 'cloud'],
+];
+function ppWdWxKind(cond) {
+ const s = String(cond || '');
+ const hit = PP_WD_WX.find(x => x[1].test(s));
+ return hit ? hit[0] : 'cloud';
+}
+function ppWdWxMeta(kind) { const x = PP_WD_WX.find(r => r[0] === kind) || PP_WD_WX[5]; return { kind: x[0], label: x[2], icon: ICON[x[3]] || ICON.cloud }; }
+/** อากาศที่ยังใช้ได้ — เกิน 18 ชั่วโมงจริง หรือข้ามเวลาไปนานแล้ว ถือว่าหมดอายุ */
+function ppWdWeather() {
+ const wx = ppWd().weather;
+ if (!wx || wx.stale) return null;
+ if (Date.now() - (wx.ts || 0) > 18 * 3600000) return null;
+ return wx;
+}
+function ppWdSetWeather(cond, temp, place) {
+ const c = String(cond || '').trim().slice(0, 50);
+ if (!c) { delete ppWd().weather; saveCfg(); ppWdApplyFx(); return null; }
+ const t = parseFloat(temp);
+ const wx = { cond: c, kind: ppWdWxKind(c), temp: isFinite(t) ? Math.round(t) : null, place: String(place || '').trim().slice(0, 40), ts: Date.now() };
+ ppWd().weather = wx;
+ saveCfg();
+ ppWdApplyFx();
+ try { ppPxHomeUpdate(null); } catch {}
+ return wx;
+}
+function ppWdApplyFx() {
+ try {
+  const home = document.getElementById('pp-home');
+  let fx = document.getElementById('pp-wd-fx');
+  const wx = ppWdWeather();
+  const kind = wx && getCfg().wdWeatherFx !== false ? wx.kind : '';
+  const animated = ['rain', 'storm', 'snow', 'fog'].includes(kind);
+  if (!home || !animated) { fx?.remove(); return; }
+  if (!fx || fx.dataset.k !== kind) {
+   fx?.remove();
+   fx = document.createElement('div');
+   fx.id = 'pp-wd-fx';
+   fx.dataset.k = kind;
+   fx.className = `pp-wd-fx ${kind}`;
+   const n = kind === 'fog' ? 3 : kind === 'snow' ? 26 : 40;
+   let html = '';
+   for (let i = 0; i < n; i++) {
+    const l = (i * 97) % 100, dl = ((i * 37) % 100) / 40, du = kind === 'snow' ? 5 + (i % 5) : 0.55 + (i % 7) / 12;
+    html += `<i style="left:${l}%;animation-delay:-${dl.toFixed(2)}s;animation-duration:${du.toFixed(2)}s"></i>`;
+   }
+   fx.innerHTML = html;
+   const wp = document.getElementById('pp-home-wp');
+   if (wp) wp.after(fx); else home.prepend(fx);
+  }
+ } catch {}
+}
+function ppWdTodayRow() {
+ const bits = [];
+ const wx = ppWdWeather();
+ if (wx) { const m = ppWdWxMeta(wx.kind); bits.push(`<div class="pp-px-tw-row" data-px="wd-weather">${m.icon}<span><b>${esc(wx.cond)}</b>${wx.temp != null ? ` · ${wx.temp}°` : ''}${wx.place ? ` · ${esc(wx.place)}` : ''}</span></div>`); }
+ const r = ppWd().rumors.filter(x => x.spreaders.some(s => !s.done)).length;
+ if (r) bits.push(`<div class="pp-px-tw-row">${ICON.users || ICON.bell}<span>มีเรื่องกำลังถูกพูดถึง ${r} เรื่อง</span></div>`);
+ return bits.join('');
+}
+
+// ── ข่าวลือ ──
+const PP_WD_RUMOR_TPL = [
+ t => `ได้ยินมาว่า${t} จริงป่ะ`,
+ t => `เฮ้ย มีคนเล่าว่า${t} อะ`,
+ t => `แกรู้ยัง ${t}`,
+ t => `ตอนนี้ใคร ๆ ก็พูดกันว่า${t}`,
+];
+function ppWdRumorSpreaders(ev, aboutId) {
+ const out = [];
+ const raw = Array.isArray(ev.spread) ? ev.spread : Array.isArray(ev.to) ? ev.to : (ev.spread ? [ev.spread] : []);
+ raw.slice(0, 6).forEach((s, i) => {
+  const o = typeof s === 'string' ? { from: s } : (s || {});
+  const c = ppSyncFindContact(String(o.from || o.who || o.name || ''), true);
+  if (!c || c.id === aboutId || isBlocked(c.id) || out.some(x => x.cid === c.id)) return;
+  const d = parseFloat(o.delay);
+  out.push({ cid: c.id, text: String(o.text || '').trim().slice(0, 300), delay: isFinite(d) && d >= 0 ? Math.min(d, 720) : [2, 7, 15, 25, 40, 60][i] });
+ });
+ if (out.length) return out;
+ // ไม่ได้บอกว่าใครพูดต่อ — สุ่มคนที่ไม่อยู่ในฉาก ไม่ใช่เจ้าของเรื่อง
+ const inScene = new Set(ppMainCharIds ? ppMainCharIds() : []);
+ const pool = getContacts().filter(c => c && !c.unknown && c.id !== aboutId && !inScene.has(c.id) && !isBlocked(c.id));
+ pool.sort((a, b) => ppWxSeedNum(a.id + ev.text) % 97 - ppWxSeedNum(b.id + ev.text) % 97);
+ return pool.slice(0, 2).map((c, i) => ({ cid: c.id, text: '', delay: [4, 12][i] }));
+}
+function ppWdAddRumor(ev) {
+ const text = String(Array.isArray(ev.text) ? ev.text.join(' ') : (ev.text || ev.rumor || ev.what || '')).trim().slice(0, 240);
+ if (!text) return null;
+ const about = ppSyncFindContact(String(ev.about || ev.target || ''), false);
+ const sp = ppWdRumorSpreaders(ev, about ? about.id : '');
+ const now = Date.now();
+ const r = { id: newId(), text, about: about ? about.id : String(ev.about || '').slice(0, 40), ts: now,
+  spreaders: sp.map(s => ({ cid: s.cid, text: s.text, at: now + s.delay * 60000, done: false })) };
+ const w = ppWd();
+ w.rumors.push(r);
+ if (w.rumors.length > 30) w.rumors.splice(0, w.rumors.length - 30);
+ saveCfg();
+ return r;
+}
+/** ส่งข่าวลือที่ถึงเวลาแล้ว — ออฟไลน์อยู่ก็รอ */
+function ppWdFlush(nowArg) {
+ try { if (ppPxOffline()) return 0; } catch {}
+ const now = nowArg || Date.now();
+ let sent = 0;
+ ppWd().rumors.forEach(r => {
+  r.spreaders.forEach((s, i) => {
+   if (s.done || s.at > now) return;
+   s.done = true;
+   const c = findContact(s.cid);
+   if (!c || isBlocked(c.id)) return;
+   const aboutName = r.about ? (findContact(r.about) ? dname(findContact(r.about)) : r.about) : '';
+   const body = s.text || PP_WD_RUMOR_TPL[(ppWxSeedNum(r.id + s.cid)) % PP_WD_RUMOR_TPL.length](` ${r.text}`.replace(/^ (?=[ก-๙])/, ''));
+   pushThreadMsg(c.id, { from: 'them', text: body, ts: Math.min(now, s.at) });
+   bumpUnread(c.id, 1);
+   pushNotif(c.id, 'msg', `${dname(c)}: ${body}`);
+   if (!ppPxSilenced(c)) islandNotify(c, body);
+   ppLog('phone', `${dname(c)} ทักมาเล่าเรื่องที่ลือกันอยู่${aboutName ? ` (เกี่ยวกับ ${aboutName})` : ''}: "${body.slice(0, 80)}"`);
+   ppLogBot('chat', `ได้ยินข่าวลือว่า "${r.text.slice(0, 80)}" แล้วทักไปเล่าให้ ${getUserDisplayName()} ฟัง: "${body.slice(0, 80)}"`);
+   sent++;
+  });
+ });
+ if (sent) { saveCfg(); try { if (ppCurrentScreen === 'messages') renderContactList(); } catch {} }
+ return sent;
+}
+
+// ── เหตุการณ์ ──
+function ppWdApplyEvent(type, ev) {
+ if (type === 'time_skip') {
+  const ms = ppWdSkipMs(ev);
+  if (!ms) return { ok: false, reason: 'ไม่รู้ว่าข้ามไปนานเท่าไร' };
+  ppWdSkip(ms, ev.note || ev.why || '');
+  const label = `${ppWdFmtSpan(ms)}ต่อมา`;
+  const tid = ppSyncSpeakerId && findContact(ppSyncSpeakerId) ? ppSyncSpeakerId : '';
+  if (tid) pushThreadMsg(tid, { from: 'sys', type: 'sysline', text: `— ${label} —` });
+  ppLog('phone', `เวลาในเรื่องผ่านไป ${ppWdFmtSpan(ms)}${ppWdStoryOn() ? ` · มือถือขึ้น ${ppWdClockLabel()}` : ''}`);
+  return { ok: true, label: `ข้ามเวลา ${ppWdFmtSpan(ms)}` };
+ }
+ if (type === 'weather') {
+  const cond = ev.cond || ev.condition || ev.weather || ev.text || ev.sky || ev.status || '';
+  const wx = ppWdSetWeather(cond, ev.temp ?? ev.temperature, ev.place || ev.city || ev.where);
+  if (!wx) return { ok: false, reason: 'ไม่ได้บอกว่าอากาศเป็นยังไง' };
+  if (['storm', 'snow'].includes(wx.kind) || /เตือน|warning|alert/i.test(String(ev.alert || ev.note || ''))) ppPxNotify('สภาพอากาศ', `${wx.cond}${wx.place ? ' · ' + wx.place : ''}`);
+  return { ok: true, label: `อากาศ ${wx.cond}` };
+ }
+ if (type === 'rumor') {
+  const r = ppWdAddRumor(ev);
+  if (!r) return { ok: false, reason: 'ข่าวลือไม่มีเนื้อหา' };
+  if (!r.spreaders.length) return { ok: true, label: 'ข่าวลือ (ไม่มีใครส่งต่อ)' };
+  return { ok: true, label: `ข่าวลือจะไปถึง ${r.spreaders.length} คน` };
+ }
+ return null;
+}
+
+// ── บอกบทหลัก ──
+function ppWdStateLines() {
+ const rows = [];
+ const un = getUserDisplayName();
+ if (ppWdStoryOn() && ppWd().offset) {
+  const t = ppWdDate();
+  rows.push(`In-story clock (what ${un}'s phone shows): วัน${['อาทิตย์', 'จันทร์', 'อังคาร', 'พุธ', 'พฤหัสบดี', 'ศุกร์', 'เสาร์'][t.getDay()]} ${fmtHM(t)}. Keep time references in the story consistent with this.`);
+ }
+ const wx = ppWdWeather();
+ if (wx) rows.push(`Current weather in the story${wx.place ? ` (${wx.place})` : ''}: ${wx.cond}${wx.temp != null ? `, ${wx.temp}°C` : ''}. Keep it consistent until the story changes it.`);
+ const live = ppWd().rumors.filter(r => Date.now() - r.ts < 3 * 86400000).slice(-3);
+ if (live.length) rows.push(`Rumors going around: ${live.map(r => `"${r.text}"${r.spreaders.some(s => s.done) ? ` (already reached ${un} via ${r.spreaders.filter(s => s.done).map(s => cname(s.cid)).join(', ')})` : ''}`).join('; ')}.`);
+ return rows;
+}
+
+// ── หน้าตั้งค่า ──
+function ppWdSettingsHTML() {
+ const cfg = getCfg();
+ const w = ppWd();
+ const sw = (id, on, lb, sub) => `<div class="pp-cell"><span class="pp-cell-lb" style="flex-direction:column;align-items:flex-start;gap:2px"><span>${esc(lb)}</span>${sub ? `<span style="font-size:11px;color:var(--pp-txt3);line-height:1.4">${esc(sub)}</span>` : ''}</span><label class="pp-switch"><input type="checkbox" id="${id}"${on ? ' checked' : ''}><span></span></label></div>`;
+ const wx = ppWdWeather();
+ const rumors = w.rumors.slice(-5).reverse();
+ return `
+  <div class="pp-sec-label">โลกในเรื่อง</div>
+  <div class="pp-card">
+   ${sw('pp-wd-story', !!cfg.wdStoryTime, 'นาฬิกาเดินตามเวลาในเรื่อง', 'เรื่องข้ามไปเช้าวันใหม่ นาฬิกามือถือก็ข้ามตาม ปิดไว้ = ใช้เวลาจริงของเครื่อง')}
+   ${cfg.wdStoryTime ? `<div class="pp-cell"><span class="pp-cell-lb">ตอนนี้ในเรื่อง ${esc(ppWdClockLabel())}${w.offset ? ` <span style="color:var(--pp-txt3);font-size:11px">(เร็วกว่าจริง ${esc(ppWdFmtSpan(w.offset))})</span>` : ''}</span></div>
+   <div class="pp-cell pp-wd-btns"><button class="pp-btn" data-px="wd-plus" data-h="1">+1 ชม.</button><button class="pp-btn" data-px="wd-plus" data-h="tomorrow">พรุ่งนี้เช้า</button><button class="pp-btn" data-px="wd-set">ตั้งเวลา</button>${w.offset ? `<button class="pp-btn" data-px="wd-reset">เวลาจริง</button>` : ''}</div>` : ''}
+   <div class="pp-cell" data-px="wd-weather"><span class="pp-cell-lb">อากาศในเรื่อง</span><span style="color:var(--pp-txt3)">${wx ? esc(wx.cond + (wx.temp != null ? ` ${wx.temp}°` : '')) : 'ไม่ได้กำหนด'}</span></div>
+   ${sw('pp-wd-fx', cfg.wdWeatherFx !== false, 'ฝนตก หิมะ หมอก บนหน้าจอหลัก', 'ตามอากาศในเรื่อง')}
+   ${sw('pp-wd-offscene', cfg.wdOffscene !== false, 'เพื่อนนอกฉากรู้ข่าวใหญ่', 'เกิดเรื่องใหญ่ในโรล เพื่อนหรือครอบครัวที่ไม่ได้อยู่ในฉากทักมาถามได้')}
+  </div>
+  ${rumors.length ? `<div class="pp-sec-label">ข่าวลือล่าสุด</div><div class="pp-card">${rumors.map(r => {
+   const done = r.spreaders.filter(s => s.done).length;
+   return `<div class="pp-cell"><span class="pp-cell-lb" style="flex-direction:column;align-items:flex-start;gap:2px"><span>${esc(r.text)}</span><span style="font-size:11px;color:var(--pp-txt3)">ไปถึงแล้ว ${done}/${r.spreaders.length} คน${r.spreaders.length ? ' · ' + esc(r.spreaders.map(s => cname(s.cid)).join(', ')) : ''}</span></span></div>`;
+  }).join('')}<div class="pp-cell"><button class="pp-btn danger" data-px="wd-rumor-clear">ล้างข่าวลือ</button></div></div>` : ''}`;
+}
+function ppWdClick(act, el) {
+ if (act === 'wd-plus') { const ms = el.dataset.h === 'tomorrow' ? ppWdSkipMs({ to: 'tomorrow' }) : 3600000; ppWdSkip(ms, 'ผู้ใช้เลื่อนเอง'); ppToast(`ในเรื่องตอนนี้ ${ppWdClockLabel()}`); renderSetPage(); return true; }
+ if (act === 'wd-reset') { ppWdResetTime(); renderSetPage(); return true; }
+ if (act === 'wd-set') {
+  ppPrompt('ในเรื่องตอนนี้กี่โมง', fmtHM(ppWdDate()), v => { const ms = ppWdSkipMs({ to: v }); if (ms) { ppWdSkip(ms, 'ผู้ใช้ตั้งเวลา'); ppToast(`ในเรื่องตอนนี้ ${ppWdClockLabel()}`); } else ppToast('อ่านเวลาไม่ออก ลองแบบ 07:30'); renderSetPage(); }, { hint: 'เวลาเดินไปข้างหน้าเท่านั้น ใส่เวลาที่ผ่านไปแล้ววันนี้ = พรุ่งนี้เวลานั้น', placeholder: '07:30' });
+  return true;
+ }
+ if (act === 'wd-weather') {
+  const wx = ppWdWeather();
+  ppPrompt('อากาศในเรื่อง', wx ? wx.cond + (wx.temp != null ? ' ' + wx.temp : '') : '', v => {
+   const m = String(v || '').match(/^(.*?)(?:\s+(-?\d{1,2})\s*°?)?\s*$/);
+   ppWdSetWeather(m ? m[1] : v, m && m[2], wx && wx.place);
+   ppToast(v ? 'ตั้งอากาศแล้ว บทหลักจะรู้ด้วย' : 'ล้างอากาศแล้ว');
+   if (ppCurrentScreen === 'settings') renderSetPage();
+  }, { hint: 'เช่น ฝนตกหนัก 24 · หิมะตก -2 · แดดจัด 36 · เว้นว่างเพื่อล้าง', placeholder: 'ฝนตกหนัก 24' });
+  return true;
+ }
+ if (act === 'wd-rumor-clear') { ppWd().rumors = []; saveCfg(); renderSetPage(); return true; }
+ return false;
+}
+
+const PP_WD_CSS = `
+.pp-wd-fx{position:absolute;inset:0;pointer-events:none;overflow:hidden;z-index:0;}
+.pp-wd-fx i{position:absolute;top:-12%;display:block;}
+.pp-wd-fx.rain i,.pp-wd-fx.storm i{width:1.5px;height:44px;background:linear-gradient(180deg,rgba(255,255,255,0),rgba(210,225,255,.55));animation:pp-wd-rain .8s linear infinite;}
+.pp-wd-fx.storm::after{content:'';position:absolute;inset:0;background:#fff;opacity:0;animation:pp-wd-flash 7s infinite;}
+.pp-wd-fx.snow i{width:6px;height:6px;border-radius:50%;background:rgba(255,255,255,.85);filter:blur(.5px);animation:pp-wd-snow 6s linear infinite;}
+.pp-wd-fx.fog i{top:10%;width:160%;height:40%;left:-30% !important;border-radius:50%;background:radial-gradient(closest-side,rgba(255,255,255,.22),rgba(255,255,255,0));animation:pp-wd-fog 18s ease-in-out infinite alternate !important;}
+.pp-wd-fx.fog i:nth-child(2){top:45%;}
+.pp-wd-fx.fog i:nth-child(3){top:70%;}
+@keyframes pp-wd-rain{to{transform:translate(-40px,120vh);}}
+@keyframes pp-wd-snow{0%{transform:translate(0,0)}50%{transform:translate(14px,55vh)}100%{transform:translate(-6px,115vh)}}
+@keyframes pp-wd-fog{from{transform:translateX(-12%)}to{transform:translateX(12%)}}
+@keyframes pp-wd-flash{0%,93%,100%{opacity:0}94%{opacity:.35}95%{opacity:0}96.5%{opacity:.22}}
+@media (prefers-reduced-motion: reduce){.pp-wd-fx i{animation:none !important;opacity:.5;}.pp-wd-fx.storm::after{animation:none;}}
+#pp-home>#pp-wd-fx{position:absolute;z-index:0;}
+.pp-wd-btns{gap:6px;flex-wrap:wrap;justify-content:flex-start;}
+.pp-wd-btns .pp-btn{padding:6px 10px;font-size:12.5px;}
+.pp-lock-wx{display:flex;align-items:center;gap:6px;justify-content:center;font-size:13px;color:rgba(255,255,255,.85);margin-top:4px;}
+.pp-lock-wx svg{width:15px;height:15px;}
+`;
+console.log(`[pocket-phone] ${PP_VERSION} ท่อน 11 พร้อม - โลกในเรื่อง`);
 
 // ══════════════════════════════════════════════════════════
 // BOOT
