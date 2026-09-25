@@ -1,4 +1,5 @@
 // pocket-phone/index.js
+// ★ [2.57.0] ท่อน 12 "หน้าตาและลูกเล่น" (ppLk*) — zoom/live activity/depth/lock font/era labels/WebAudio tones · ตั้งค่า > หน้าล็อกและลูกเล่น
 // ★ [2.56.0] ท่อน 11 "โลกในเรื่อง" (ppWd*) — time_skip/weather/rumor · cfg.world · wdStoryTime/wdOffscene/wdWeatherFx
 // ★ [2.55.0] ท่อน 10 "โทรสมจริง" (ppCl*) — video/[FACE]/group_call/call_drop/สายซ้อน
 // ★ [2.54.0] ท่อน 9 "ฟีดคึกคัก" (ppFd*) — live/live_end/trend/ad/alt_caught · post: tags/reel/about · สำหรับคุณ
@@ -28,7 +29,7 @@
 // getContext ล้วน · ไม่มี import/export · lazy + try/catch
 // ⚠️ รันเดี่ยวไม่ได้ ต้องแปะครบ 4 ท่อน
 
-const PP_VERSION = '2.56.0';
+const PP_VERSION = '2.57.0';
 const MODULE_NAME = 'pocket-phone';
 
 // ══════════════════════════════════════════════════════════
@@ -9737,7 +9738,7 @@ function ppAppGridHTML() {
   else face = a.icon;
   return `<button class="pp-app" data-nav="${a.nav}" data-appnav="${a.nav}">
  <span class="pp-icon${cov ? ' has-cover' : ''}" style="color:${a.glow}${cov ? `;background-image:url('${esc(cov)}')` : ''}">${face}<span class="pp-icon-badge" data-badge="${a.nav}"></span></span>
- <span class="pp-label">${esc(a.label)}</span>
+ <span class="pp-label">${esc(ppLkLabel(a))}</span>
  </button>`;
  }).join('');
 }
@@ -11141,6 +11142,7 @@ function ppShowLock() {
   ${ppPxLockStackHTML()}
   <div class="pp-lock-hint">ปัดขึ้นเพื่อปลดล็อก</div>`;
  f.appendChild(box);
+ ppLkDecorateLock(box); // ★ [2.57.0] แต่งหน้าล็อก
  requestAnimationFrame(() => box.classList.add('show'));
  const unlock = () => {
   box.classList.add('gone');
@@ -11307,15 +11309,18 @@ function ppClose() {
  islandRefresh();
 }
 /** ★ 2.36.0 อนิเมชันเปิดแอพ ให้รู้สึกว่ากำลังเปิดจริง ไม่ใช่สลับทันที */
+let ppNavPrev = null; // ★ [2.57.0] หน้าก่อนหน้า — ppNav เปลี่ยน ppCurrentScreen ก่อนเรียกมาถึงนี่ อนิเมชันเลยไม่เคยเล่น
 function ppAppOpenAnim(screen) {
  try {
-  if (screen === 'home' || ppCurrentScreen === screen) return;
+  const from = ppNavPrev;
+  ppNavPrev = null;
+  if (screen === 'home' || !from || from === screen) return;
   const el = document.getElementById('pp-scr-' + screen) || (screen === 'home' ? document.getElementById('pp-home') : null);
   if (!el) return;
-  el.classList.remove('pp-anim-in', 'pp-anim-back');
+  el.classList.remove('pp-anim-in', 'pp-anim-back', 'pp-anim-zoom');
   void el.offsetWidth;   // บังคับให้เริ่มอนิเมชันใหม่ ไม่งั้นเปิดซ้ำจะไม่เล่น
-  el.classList.add(ppCurrentScreen === 'home' ? 'pp-anim-in' : 'pp-anim-back');
-  setTimeout(() => el.classList.remove('pp-anim-in', 'pp-anim-back'), 340);
+  el.classList.add(from === 'home' ? ppLkOpenClass(el) : 'pp-anim-back'); // ★ [2.57.0] ซูมจากไอคอน
+  setTimeout(() => el.classList.remove('pp-anim-in', 'pp-anim-back', 'pp-anim-zoom'), 460);
  } catch {}
 }
 
@@ -11583,6 +11588,7 @@ function ppNav(screen) {
  if (ppCurrentScreen !== screen && (ppCurrentScreen === 'feed' || ppCurrentScreen === 'postview' || ppCurrentScreen === 'profview')) {
   if (screen !== 'feed' && screen !== 'postview' && screen !== 'profview') ppAudioStop();
  }
+ ppNavPrev = ppCurrentScreen;
  ppCurrentScreen = screen;
  document.querySelectorAll('.pp-screen').forEach(s => { s.classList.remove('show', 'pp-enter'); });
  const id = screen === 'home' ? 'pp-home' : 'pp-scr-' + screen;
@@ -11776,10 +11782,11 @@ function renderIslandInto(el, state) {
  if (!state) {
  el.classList.remove('pp-island-live');
  if (isExt) { el.style.width = '118px'; el.style.height = '33px'; el.style.borderRadius = '20px'; el.style.justifyContent = 'center'; el.style.padding = '0'; el.style.gap = '0'; }
- setTimeout(() => { if (!el.classList.contains('pp-island-live')) { el.innerHTML = ''; delete el.dataset.cid; if (isExt) el.style.display = 'none'; } }, 560);
+ setTimeout(() => { if (!el.classList.contains('pp-island-live') && !el.classList.contains('pp-island-compact')) { el.innerHTML = ''; delete el.dataset.cid; if (isExt) el.style.display = 'none'; } }, 560);
  return;
  }
  el.dataset.cid = state.cid || '';
+ el.classList.remove('pp-island-compact');
  if (isExt) el.style.display = 'flex';
  const av = state.avatar
  ? `<img class="pp-island-av" src="${esc(state.avatar)}" onerror="this.style.visibility='hidden'">`
@@ -11799,7 +11806,7 @@ function islandRefresh() {
  const internal = document.getElementById('pp-island');
  const external = document.getElementById('pp-ext-island');
  const open = !!document.getElementById('pp-dialog')?.open;
- if (internal) { if (open && getCfg().dynamicIsland && ppIslandState) renderIslandInto(internal, ppIslandState); else renderIslandInto(internal, null); }
+ if (internal) { if (open && getCfg().dynamicIsland && ppIslandState) renderIslandInto(internal, ppIslandState); else if (!ppLkIsland(internal)) renderIslandInto(internal, null); } // ★ [2.57.0] Live Activity
  if (external) { const show = !open && ppIslandState && (getCfg().islandScope === 'always' || ppIslandState.notify); renderIslandInto(external, show ? ppIslandState : null); }
 }
 function islandTyping(c) { clearTimeout(ppIslandTimer); ppIslandState = { cid: c.id, name: dname(c), avatar: c.avatar, kind: 'typing' }; islandRefresh(); }
@@ -11811,6 +11818,7 @@ function islandNotify(c, text) {
  clearTimeout(ppIslandTimer);
  ppIslandState = { cid: c ? c.id : '', name: c ? (c.name || dname(c)) : 'Pocket Phone', avatar: c ? c.avatar : '', kind: 'msg', text, notify: true };
  islandRefresh();
+ ppLkTone(c, text); // ★ [2.57.0] เสียงข้อความรายคน
  ppIslandTimer = setTimeout(() => { ppIslandState = null; islandRefresh(); }, 4200);
 }
 function islandShowReplies(c, lines) {
@@ -14330,6 +14338,7 @@ function renderChatSettings() {
  <input class="pp-input-line" id="pp-cs-ringtone" placeholder="ลิงก์เสียง (เว้นว่าง = ใช้ค่าเริ่มต้น)" value="${esc(st.ringtone || '')}" style="flex:1">
  <button class="pp-btn" id="pp-cs-ringtone-save">บันทึก</button>
  </div>
+ <div class="pp-card" style="margin-top:8px"><div class="pp-cell"><span class="pp-cell-lb">เสียงข้อความของแชทนี้</span><select class="pp-sel" id="pp-lk-ctone">${ppLkToneOptions(st.msgTone || '', true)}</select></div></div>
 
  <div class="pp-sec-label">พื้นหลังแชท</div>
  <div class="pp-swatches">${bgSwatches}</div>
@@ -21035,6 +21044,18 @@ const PP_GUIDE_FAQ = [
    text: 'ใช้รูปเล็กลง หรือใช้ลิงก์แทนการดึงจากเครื่อง · รูปจากลิงก์ไม่กินพื้นที่และส่งต่อไปเครื่องคนอื่นได้ด้วย' },
 ];
 const PP_CHANGELOG = [
+ { v: '2.57.0', title: 'หน้าตาและลูกเล่น: เปิดแอพซูมจากไอคอน Live Activity วอลเปเปอร์มีมิติ แต่งหน้าล็อก ชื่อแอพตามยุค เสียงข้อความรายคน',
+   lines: [
+    'เปิดแอพซูมออกจากไอคอนที่แตะเหมือน iPhone ปิดได้',
+    'แก้บั๊ก: อนิเมชันเปิดแอพเดิมไม่เคยเล่นเลย เพราะระบบเปลี่ยนหน้าก่อนเช็กว่ามาจากหน้าไหน',
+    'Live Activity บนเกาะ สายที่ย่อไว้ขึ้นชื่อกับเวลาที่เดินอยู่ เพลงที่เล่นอยู่มีแท่งเสียงเต้น ของที่กำลังมาส่งบอกเหลืออีกกี่นาที แจ้งเตือนเด้งมาก็แทรกได้ แล้วกลับมาเอง แตะเพื่อเปิดแอพนั้น',
+    'วอลเปเปอร์มีมิติ ใส่ภาพชั้นหน้า PNG พื้นใส ภาพลอยทับนาฬิกาบนหน้าหลักและหน้าล็อก',
+    'แต่งหน้าล็อก ฟอนต์นาฬิกา 7 แบบ (บางเฉียบ หนาหนัก มนกลม มีเชิง ดิจิทัล ลายมือ ตัวโปร่ง) สีนาฬิกา นาฬิกาอยู่กลางหรือบนแบบ iOS และหน้าล็อกไม่เบลอ',
+    'ชื่อแอพเปลี่ยนตามยุคของเครื่อง เช่น ยุคแฟนตาซี ข้อความเป็นสาส์นเวท กระเป๋าเงินเป็นถุงเหรียญ ยุคไอน้ำเป็นโทรเลข ยุคไทล์เป็นตัวพิมพ์เล็กภาษาอังกฤษ ปิดได้',
+    'เสียงข้อความเข้า 8 แบบ สังเคราะห์ในเครื่อง ไม่ต้องใช้ไฟล์ ตั้งเสียงเริ่มต้นและตั้งแยกรายคนได้ในตั้งค่าแชท ค่าเริ่มต้นยังเงียบเหมือนเดิม โฟกัสและแชทที่ปิดเสียงจะไม่ดัง',
+   ],
+   tip: 'ตั้งค่า > หน้าล็อกและลูกเล่น' },
+
  { v: '2.56.0', title: 'โลกในเรื่อง: เวลาในเรื่อง ข้ามเวลา สภาพอากาศ ข่าวลือแพร่ เพื่อนนอกฉากรู้ข่าว',
    lines: [
     'เวลาในเรื่อง เปิดได้ที่ตั้งค่า > ชีวิตจริง > โลกในเรื่อง นาฬิกาบนแถบสถานะ หน้าหลัก หน้าล็อก และเวลาที่บอกบอท เดินตามเรื่องแทนเวลาจริง ปิดไว้ตามเดิม',
@@ -22918,6 +22939,7 @@ function renderSetPage() {
 
  if (key === 'life') { body.innerHTML = ppPxLifePageHTML(); return; } // ★ [2.50.0]
  if (key === 'era') { body.innerHTML = ppEraPageHTML(); return; } // ★ [2.51.0]
+ if (key === 'lockfx') { body.innerHTML = ppLkPageHTML(); return; } // ★ [2.57.0]
  if (key === 'glass') {
   const g = ppGx();
   const cfgSize = JSON.stringify(cfg).length;
@@ -31735,6 +31757,7 @@ async function ppPxClick(e) {
  const p = ppPx();
  e.stopPropagation();
  if (a.startsWith('wd-') && ppWdClick(a, el)) return; // ★ [2.56.0]
+ if (a.startsWith('lk-') && ppLkClick(a, el)) return; // ★ [2.57.0]
  switch (a) {
   case 'charge-on': ppPxSetCharging(true); return;
   case 'ch-filter': return ppChToggleFilter(el.dataset.k);
@@ -31815,6 +31838,7 @@ function ppPxChange(e) {
  const t = e.target;
  if (!t || !t.id) return;
  if (ppBrChange(e)) return; // ★ [2.52.0]
+ if (ppLkChange(e)) return; // ★ [2.57.0]
  const key = PP_PX_SWITCHES[t.id];
  if (key) {
   getCfg()[key] = !!t.checked;
@@ -31850,10 +31874,12 @@ function ppPxInit() {
  if (!document.getElementById('pp-px-css')) {
   const s = document.createElement('style');
   s.id = 'pp-px-css';
-  s.textContent = PP_PX_CSS + PP_BR_CSS + PP_CH_CSS + PP_FD_CSS + PP_CL_CSS + PP_WD_CSS;
+  s.textContent = PP_PX_CSS + PP_BR_CSS + PP_CH_CSS + PP_FD_CSS + PP_CL_CSS + PP_WD_CSS + PP_LK_CSS;
   document.head.appendChild(s);
  }
  f.addEventListener('click', ppPxClick, true);
+ f.addEventListener('pointerdown', ppLkNoteIcon, true); // ★ [2.57.0]
+ ppLkApplyDepth();
  f.addEventListener('click', e => { if (getCfg().pxOneHand && e.target === f) { getCfg().pxOneHand = false; saveCfg(); ppBrApplyA11y(); } }); // ★ [2.52.0] ออกจากโหมดมือเดียว
  f.addEventListener('change', ppPxChange);
  ppPx();
@@ -32500,6 +32526,7 @@ function ppEraSet(id) {
  // กลับยุคปัจจุบัน: ทาหน้าตาเดิมกลับทั้งหมด
  try { applyTheme(); ppApplyDeco(); ppApplyIglass(); } catch {}
  ppEraApply();
+ try { ppRenderApps(); } catch {} // ★ [2.57.0] ชื่อแอพตามยุค
  const now = ppEra();
  if (prev.id !== now.id) {
   ppLog('phone', now.id === 'modern' ? `มือถือของ ${getUserDisplayName()} กลับมาเป็นสมาร์ทโฟนยุคปัจจุบัน` : `มือถือของ ${getUserDisplayName()} เป็นแบบ "${now.name}" (${now.year})`);
@@ -32532,6 +32559,7 @@ function ppEraPageHTML() {
   <div class="pp-card" style="margin-bottom:10px">
    <div class="pp-cell"><span class="pp-cell-lb" style="flex-direction:column;align-items:flex-start;gap:2px"><span>บอกบอทว่ามือถือเป็นยุคไหน</span><span style="font-size:11px;color:var(--pp-txt3);line-height:1.4">บอทจะเล่าเรื่องมือถือให้ตรงยุค เช่นยุคปุ่มกดส่งได้แค่ SMS ยุคแฟนตาซีเรียกว่ากระจกเวท</span></span><label class="pp-switch"><input type="checkbox" id="pp-px-eratell"${cfg.eraTellBot !== false ? ' checked' : ''}><span></span></label></div>
    <div class="pp-cell"><span class="pp-cell-lb" style="flex-direction:column;align-items:flex-start;gap:2px"><span>ซ่อนแอพที่ยุคนั้นยังไม่มี</span><span style="font-size:11px;color:var(--pp-txt3);line-height:1.4">เช่นยุคปุ่มกดไม่มีฟีด อีเมล หรือแผนที่ ข้อมูลในแอพไม่หาย แค่ซ่อนไว้</span></span><label class="pp-switch"><input type="checkbox" id="pp-px-erahide"${cfg.eraHideApps !== false ? ' checked' : ''}><span></span></label></div>
+   <div class="pp-cell"><span class="pp-cell-lb" style="flex-direction:column;align-items:flex-start;gap:2px"><span>ชื่อแอพเปลี่ยนตามยุค</span><span style="font-size:11px;color:var(--pp-txt3);line-height:1.4">ยุคแฟนตาซีเป็นสาส์นเวท ยุคไอน้ำเป็นโทรเลข ยุคไทล์เป็นตัวพิมพ์เล็กภาษาอังกฤษ</span></span><label class="pp-switch"><input type="checkbox" id="pp-px-eralang"${cfg.eraLang !== false ? ' checked' : ''}><span></span></label></div>
   </div>
   <div class="pp-era-grid">${PP_ERAS.map(card).join('')}</div>`;
 }
@@ -34230,6 +34258,334 @@ const PP_WD_CSS = `
 .pp-lock-wx svg{width:15px;height:15px;}
 `;
 console.log(`[pocket-phone] ${PP_VERSION} ท่อน 11 พร้อม - โลกในเรื่อง`);
+
+// ══════════════════════════════════════════════════════════
+// pocket-phone/index.js — 2.57.0 — ท่อน 12 (หน้าตาและลูกเล่น)
+// ★ [2.57.0] เปิดแอพซูมจากไอคอน · Live Activity บนเกาะ · วอลเปเปอร์มีมิติ · แต่งหน้าล็อก · ชื่อแอพตามยุค · เสียงข้อความรายคน
+// ══════════════════════════════════════════════════════════
+
+Object.assign(DEFAULTS, {
+ lkZoomAnim: true,     // เปิดแอพซูมออกจากไอคอน
+ lkLive: true,         // Live Activity บนเกาะ (สาย เพลง ของที่กำลังมาส่ง)
+ lkMsgTone: 'none',    // เสียงข้อความเข้าเริ่มต้น
+ lkToneVol: 0.5,
+ lkLockFont: 'thin',
+ lkLockColor: '',
+ lkLockClear: false,   // หน้าล็อกไม่เบลอ เห็นวอลเปเปอร์ชัด
+ lkLockPos: 'center',
+ lkDepth: false,       // มีภาพชั้นหน้า (วอลเปเปอร์มีมิติ)
+ eraLang: true,        // ชื่อแอพเปลี่ยนตามยุคของเครื่อง
+});
+Object.assign(PP_PX_SWITCHES, { 'pp-lk-zoom': 'lkZoomAnim', 'pp-lk-live': 'lkLive', 'pp-lk-clear': 'lkLockClear', 'pp-px-eralang': 'eraLang' });
+
+// ── ชื่อแอพตามยุค ──
+const PP_LK_ERA_LABELS = {
+ mono: { messages: 'ข้อความ', calllog: 'รายชื่อ', feed: 'WAP', wallet: 'เติมเงิน', music: 'เสียงเรียกเข้า', settings: 'ตั้งค่าเครื่อง', pet: 'เลี้ยงสัตว์', pxcal: 'ออแกไนเซอร์' },
+ flip: { messages: 'SMS / MMS', calllog: 'สมุดโทรศัพท์', feed: 'บล็อก', music: 'เครื่องเล่น MP3', pxphotos: 'แกลเลอรี', wallet: 'เติมเงิน', board: 'เว็บบอร์ด', pxmail: 'อีเมล WAP' },
+ qwerty: { messages: 'แชทพิน', calllog: 'โทรศัพท์', feed: 'บล็อก', pxmail: 'อีเมลพุช', pxphotos: 'กล้อง', pxcal: 'ปฏิทินงาน', music: 'มีเดีย' },
+ skeuo: { messages: 'SMS', feed: 'ฟีดเพื่อน', pxphotos: 'อัลบั้มรูป', wallet: 'สมุดบัญชี', pxcal: 'ปฏิทิน', pxmap: 'แผนที่', board: 'ฟอรัม' },
+ metro: { messages: 'messaging', calllog: 'phone', feed: 'me', pxphotos: 'photos', music: 'music+videos', settings: 'settings', pxmail: 'mail', wallet: 'wallet', pxcal: 'calendar', pxmap: 'maps', pxshop: 'store', helper: 'people', board: 'forums', pet: 'games', period: 'health' },
+ holo: { messages: 'ข้อความ', calllog: 'โทรออก', pxphotos: 'แกลเลอรี', feed: 'โซเชียล', pxshop: 'ช็อป' },
+ y2k: { messages: 'แชท', feed: 'ไดอารี่', music: 'เพลงโปรด', pxphotos: 'สติกเกอร์ภาพ', pet: 'เพื่อนตัวจิ๋ว', board: 'กระทู้' },
+ cyber: { messages: 'ช่องสัญญาณ', calllog: 'ลิงก์เสียง', feed: 'เน็ตฟีด', wallet: 'เครดิต', pxmap: 'ระบบนำทาง', pxphotos: 'ความจำภาพ', helper: 'AI', settings: 'เฟิร์มแวร์', pxmail: 'ดาต้าแพ็ก', pxshop: 'โดรนส่งของ', music: 'ซินธ์', period: 'ไบโอมอนิเตอร์', board: 'ดาร์กบอร์ด' },
+ hologram: { messages: 'ส่งความคิด', calllog: 'โฮโลคอล', feed: 'สตรีม', pxphotos: 'ความทรงจำ', pxmap: 'พิกัด', settings: 'แกนระบบ', wallet: 'หน่วยพลังงาน', helper: 'ผู้ช่วยจิต', pxshop: 'เทเลพอร์ตของ' },
+ fantasy: { messages: 'สาส์นเวท', calllog: 'กระจกสื่อสาร', feed: 'กระดานประกาศ', wallet: 'ถุงเหรียญ', music: 'พิณ', pxmap: 'แผนที่โบราณ', pxcal: 'ปฏิทินจันทรา', pxmail: 'ม้วนสาส์น', pxphotos: 'ภาพเวท', pxshop: 'นกส่งของ', helper: 'ภูตผู้ช่วย', settings: 'ตำรา', pet: 'สัตว์อสูร', board: 'กระดานกิลด์', period: 'รอบจันทร์' },
+ steam: { messages: 'โทรเลข', calllog: 'ท่อพูด', feed: 'หนังสือพิมพ์', wallet: 'กระเป๋าเหรียญ', music: 'หีบเพลง', pxmail: 'ไปรษณีย์', pxphotos: 'ภาพถ่ายเงิน', pxcal: 'สมุดนัด', settings: 'เฟือง', helper: 'หุ่นกล', pxshop: 'ส่งพัสดุ', pxmap: 'แผนที่เดินเรือ' },
+ jade: { messages: 'สาส์น', calllog: 'ส่งเสียง', feed: 'กระดานข่าว', wallet: 'ถุงเงิน', music: 'ดนตรี', pxmap: 'แผนที่แคว้น', pxcal: 'ปฏิทินจันทรคติ', pxmail: 'ม้วนหนังสือ', pxphotos: 'ภาพวาด', helper: 'ที่ปรึกษา', settings: 'ตำรับ', pet: 'สัตว์วิเศษ', board: 'ป้ายประกาศ', pxshop: 'ม้าเร็วส่งของ' },
+};
+function ppLkLabel(a) {
+ try {
+  if (getCfg().eraLang === false) return a.label;
+  const m = PP_LK_ERA_LABELS[ppEra().id];
+  return (m && m[a.nav]) || a.label;
+ } catch { return a.label; }
+}
+
+// ── เปิดแอพซูมจากไอคอน ──
+let ppLkIcon = null;
+function ppLkNoteIcon(e) {
+ const b = e.target && e.target.closest && e.target.closest('.pp-app, #pp-dock [data-nav]');
+ if (!b) return;
+ const r = b.getBoundingClientRect();
+ ppLkIcon = { x: r.left + r.width / 2, y: r.top + r.height / 2, t: Date.now() };
+}
+/** คืนชื่อคลาสอนิเมชันที่จะใช้ตอนเปิดจากหน้าหลัก */
+function ppLkOpenClass(el) {
+ if (getCfg().lkZoomAnim === false || !ppLkIcon || Date.now() - ppLkIcon.t > 900) return 'pp-anim-in';
+ const r = el.getBoundingClientRect();
+ if (!r.width || !r.height) return 'pp-anim-in';
+ el.style.setProperty('--pp-zx', `${Math.round(ppLkIcon.x - r.left)}px`);
+ el.style.setProperty('--pp-zy', `${Math.round(ppLkIcon.y - r.top)}px`);
+ ppLkIcon = null;
+ return 'pp-anim-zoom';
+}
+
+// ── Live Activity บนเกาะ ──
+let ppLkTimer = null;
+function ppLkLive() {
+ const cfg = getCfg();
+ if (cfg.lkLive === false) return null;
+ try {
+  if (ppCall && ppCall.connected && ppCurrentScreen !== 'call') {
+   const s = Math.floor((Date.now() - ppCall.startTs) / 1000);
+   return { k: 'call', to: 'call', icon: ppCall.video ? ICON.video : ICON.phoneApp, left: ppCall.group ? 'คอลกลุ่ม' : dname(ppCall.c), right: fmtDur(s), color: '#30d158' };
+  }
+  if (ppAudioOwner === 'music' && cfg.musicNow && ppCurrentScreen !== 'music') {
+   const t = (typeof ppTracks === 'function' ? ppTracks() : []).find(x => x.id === cfg.musicNow);
+   return { k: 'music', to: 'music', icon: ICON.music, left: t ? (t.title || t.name || 'กำลังเล่น') : 'กำลังเล่น', right: '<span class="pp-lk-bars"><i></i><i></i><i></i><i></i></span>', raw: true, color: '#ff375f' };
+  }
+  const od = ppPx().orders.find(o => !o.done && !o.incoming);
+  if (od && ppCurrentScreen !== 'pxshop') {
+   const mins = Math.max(0, Math.round((od.eta - Date.now()) / 60000));
+   return { k: 'order', to: 'pxshop', icon: ICON.bag, left: od.item, right: mins ? `${mins} นาที` : 'ถึงแล้ว', color: '#ff9f0a' };
+  }
+ } catch {}
+ return null;
+}
+function ppLkRenderCompact(el, la) {
+ el.classList.remove('pp-island-live');
+ el.classList.add('pp-island-compact');
+ el.dataset.cid = '';
+ el.dataset.calllive = '';
+ el.innerHTML = `<div class="pp-lk-la" data-px="lk-go" data-to="${la.to}" data-k="${la.k}"><span class="pp-lk-l" style="color:${la.color}">${la.icon}<b>${esc(la.left)}</b></span><span class="pp-lk-r" style="color:${la.color}">${la.raw ? la.right : esc(la.right)}</span></div>`;
+}
+/** เรียกหลัง islandRefresh — คืน true ถ้าวาดแบบย่อแล้ว */
+function ppLkIsland(el) {
+ const open = !!document.getElementById('pp-dialog')?.open;
+ const la = open && getCfg().dynamicIsland && !ppIslandState ? ppLkLive() : null;
+ if (!la) {
+  if (el.classList.contains('pp-island-compact')) { el.classList.remove('pp-island-compact'); el.innerHTML = ''; }
+  clearInterval(ppLkTimer); ppLkTimer = null;
+  return false;
+ }
+ ppLkRenderCompact(el, la);
+ if (!ppLkTimer) ppLkTimer = setInterval(() => { try { if (!ppIslandState) islandRefresh(); } catch {} }, 1000);
+ return true;
+}
+
+// ── เสียงข้อความรายคน ──
+const PP_LK_TONES = {
+ ding: { name: 'ติ๊ง', n: [[880, 0, .12], [1320, .1, .22]] },
+ tri: { name: 'สามโน้ต', n: [[784, 0, .09], [988, .09, .09], [1175, .18, .16]] },
+ chime: { name: 'กระดิ่งลม', n: [[1047, 0, .3], [1319, .08, .3], [1568, .16, .4]] },
+ pop: { name: 'ป๊อป', n: [[520, 0, .06], [780, .05, .05]] },
+ bubble: { name: 'ฟองน้ำ', n: [[400, 0, .12, 900]] },
+ bell: { name: 'ระฆัง', n: [[660, 0, .7], [990, 0, .5]] },
+ knock: { name: 'เคาะ', n: [[190, 0, .05], [190, .14, .05]] },
+ retro: { name: 'ปุ่มกด', n: [[1200, 0, .08, 0, 'square'], [1600, .1, .08, 0, 'square']] },
+};
+let ppLkAudioCtx = null;
+function ppLkPlayTone(id, vol) {
+ const t = PP_LK_TONES[id];
+ if (!t) return false;
+ try {
+  const AC = window.AudioContext || window.webkitAudioContext;
+  if (!AC) return false;
+  if (!ppLkAudioCtx) ppLkAudioCtx = new AC();
+  const ac = ppLkAudioCtx;
+  if (ac.state === 'suspended' && ac.resume) ac.resume().catch(() => {});
+  const v = Math.max(0, Math.min(1, vol ?? getCfg().lkToneVol ?? .5)) * .35;
+  const t0 = ac.currentTime + .01;
+  t.n.forEach(([f, at, dur, sweep, wave]) => {
+   const o = ac.createOscillator();
+   const g = ac.createGain();
+   o.type = wave || 'sine';
+   o.frequency.setValueAtTime(f, t0 + at);
+   if (sweep) o.frequency.exponentialRampToValueAtTime(sweep, t0 + at + dur);
+   g.gain.setValueAtTime(0.0001, t0 + at);
+   g.gain.exponentialRampToValueAtTime(v, t0 + at + .012);
+   g.gain.exponentialRampToValueAtTime(0.0001, t0 + at + dur);
+   o.connect(g); g.connect(ac.destination);
+   o.start(t0 + at); o.stop(t0 + at + dur + .05);
+  });
+  return true;
+ } catch { return false; }
+}
+function ppLkToneFor(c) {
+ const per = c && c.id ? (getChatStyle(c.id).msgTone || '') : '';
+ return per || getCfg().lkMsgTone || 'none';
+}
+let ppLkLastTone = 0;
+function ppLkTone(c, text) {
+ if (/^(สาย|คอลกลุ่ม|วิดีโอคอล)/.test(String(text || ''))) return;
+ if (Date.now() - ppLkLastTone < 700) return; // ข้อความเข้ารัว ๆ ดังครั้งเดียว
+ const id = ppLkToneFor(c);
+ if (!id || id === 'none') return;
+ ppLkLastTone = Date.now();
+ ppLkPlayTone(id);
+}
+function ppLkToneOptions(cur, withDefault) {
+ return (withDefault ? `<option value=""${!cur ? ' selected' : ''}>ตามค่าเริ่มต้น</option>` : '')
+  + `<option value="none"${cur === 'none' ? ' selected' : ''}>ไม่มีเสียง</option>`
+  + Object.keys(PP_LK_TONES).map(k => `<option value="${k}"${cur === k ? ' selected' : ''}>${esc(PP_LK_TONES[k].name)}</option>`).join('');
+}
+
+// ── วอลเปเปอร์มีมิติ (ภาพชั้นหน้าทับนาฬิกา) ──
+async function ppLkApplyDepth() {
+ try {
+  const home = document.getElementById('pp-home');
+  let d = document.getElementById('pp-lk-depth');
+  const img = getCfg().lkDepth ? await loadMedia('home-wp-depth') : null;
+  if (!home || !img) { d?.remove(); return null; }
+  if (!d) {
+   d = document.createElement('div');
+   d.id = 'pp-lk-depth';
+   const clock = home.querySelector('.pp-home-clock');
+   const date = document.getElementById('pp-home-date');
+   (date || clock) ? (date || clock).after(d) : home.prepend(d);
+  }
+  d.style.backgroundImage = `url("${img}")`;
+  return img;
+ } catch { return null; }
+}
+function ppLkPickDepth() {
+ const inp = document.createElement('input');
+ inp.type = 'file'; inp.accept = 'image/png,image/webp';
+ inp.onchange = async () => {
+  const f = inp.files && inp.files[0];
+  if (!f) return;
+  const url = await ppReadImageFile(f, 1600, { keepAlpha: true });
+  if (!url) { ppToast('อ่านรูปไม่ได้'); return; }
+  await saveMedia('home-wp-depth', url);
+  getCfg().lkDepth = true; saveCfg();
+  await ppLkApplyDepth();
+  ppToast('ใส่ภาพชั้นหน้าแล้ว');
+  if (ppCurrentScreen === 'setpage') renderSetPage();
+ };
+ inp.click();
+}
+
+// ── หน้าล็อก ──
+const PP_LK_FONTS = {
+ thin: { name: 'บางเฉียบ', css: 'font-weight:200;' },
+ bold: { name: 'หนาหนัก', css: 'font-weight:800;letter-spacing:-2px;' },
+ rounded: { name: 'มนกลม', css: "font-family:ui-rounded,'SF Pro Rounded','Varela Round',system-ui,sans-serif;font-weight:600;letter-spacing:-1px;" },
+ serif: { name: 'มีเชิง', css: "font-family:'New York',Georgia,'Noto Serif Thai',serif;font-weight:400;letter-spacing:-1px;" },
+ mono: { name: 'ดิจิทัล', css: "font-family:ui-monospace,'SF Mono',Menlo,monospace;font-weight:300;letter-spacing:0;" },
+ hand: { name: 'ลายมือ', css: "font-family:'Itim',cursive;font-weight:400;letter-spacing:0;", font: 'Itim' },
+ outline: { name: 'ตัวโปร่ง', css: 'font-weight:700;color:transparent !important;-webkit-text-stroke:2px var(--pp-lk-ink,#fff);' },
+};
+function ppLkDecorateLock(box) {
+ try {
+  const cfg = getCfg();
+  const font = PP_LK_FONTS[cfg.lkLockFont] || PP_LK_FONTS.thin;
+  if (font.font && !document.getElementById('pp-lk-font-' + font.font)) {
+   const l = document.createElement('link');
+   l.id = 'pp-lk-font-' + font.font; l.rel = 'stylesheet';
+   l.href = `https://fonts.googleapis.com/css2?family=${font.font}&display=swap`;
+   document.head.appendChild(l);
+  }
+  const clock = box.querySelector('.pp-lock-clock');
+  if (clock) clock.style.cssText += font.css + (cfg.lkLockColor ? `color:${cfg.lkLockColor};` : '');
+  if (cfg.lkLockColor) box.style.setProperty('--pp-lk-ink', cfg.lkLockColor);
+  box.classList.toggle('pp-lk-top', cfg.lkLockPos === 'top');
+  if (cfg.lkLockClear) {
+   box.classList.add('pp-lk-clear');
+   const src = document.getElementById('pp-home-wp');
+   const wp = document.createElement('div');
+   wp.className = 'pp-lk-lockwp';
+   if (src) { wp.style.background = src.style.background; if (src.style.backgroundImage) wp.style.backgroundImage = src.style.backgroundImage; wp.style.backgroundSize = 'cover'; wp.style.backgroundPosition = 'center'; }
+   box.prepend(wp);
+   if (cfg.lkDepth) loadMedia('home-wp-depth').then(img => {
+    if (!img || !box.isConnected) return;
+    const d = document.createElement('div');
+    d.className = 'pp-lk-lockdepth';
+    d.style.backgroundImage = `url("${img}")`;
+    const date = box.querySelector('.pp-lock-date');
+    (date || clock)?.after(d);
+   });
+  }
+ } catch (e) { console.warn('[pocket-phone] lock deco', e); }
+}
+
+// ── หน้าตั้งค่า ──
+PP_SET_PAGES.push({ key: 'lockfx', name: 'หน้าล็อกและลูกเล่น', icon: ICON.lock, color: '#5e5ce6', sub: 'ฟอนต์นาฬิกา วอลเปเปอร์มีมิติ เสียงข้อความ Live Activity' });
+function ppLkPageHTML() {
+ const cfg = getCfg();
+ const sw = (id, on, lb, sub) => `<div class="pp-cell"><span class="pp-cell-lb" style="flex-direction:column;align-items:flex-start;gap:2px"><span>${esc(lb)}</span>${sub ? `<span style="font-size:11px;color:var(--pp-txt3);line-height:1.4">${esc(sub)}</span>` : ''}</span><label class="pp-switch"><input type="checkbox" id="${id}"${on ? ' checked' : ''}><span></span></label></div>`;
+ const cur = cfg.lkLockFont || 'thin';
+ return `
+  <div class="pp-sec-label">หน้าล็อก</div>
+  <div class="pp-lk-fonts">${Object.keys(PP_LK_FONTS).map(k => `<button class="pp-lk-font${k === cur ? ' on' : ''}" data-px="lk-font" data-id="${k}"><span style="${PP_LK_FONTS[k].css.replace(/color:transparent !important;/, 'color:transparent;').replace('var(--pp-lk-ink,#fff)', 'var(--pp-txt,#fff)')}">9:41</span><i>${esc(PP_LK_FONTS[k].name)}</i></button>`).join('')}</div>
+  <div class="pp-card">
+   <div class="pp-cell"><span class="pp-cell-lb">สีนาฬิกา</span><label class="pp-color-wrap"><input type="color" id="pp-lk-color" value="${esc(cfg.lkLockColor || '#ffffff')}"><span></span></label></div>
+   <div class="pp-cell"><span class="pp-cell-lb">ตำแหน่งนาฬิกา</span><select class="pp-sel" id="pp-lk-pos"><option value="center"${cfg.lkLockPos !== 'top' ? ' selected' : ''}>กลางจอ</option><option value="top"${cfg.lkLockPos === 'top' ? ' selected' : ''}>ด้านบนแบบ iOS</option></select></div>
+   ${sw('pp-lk-clear', !!cfg.lkLockClear, 'หน้าล็อกไม่เบลอ', 'เห็นวอลเปเปอร์ชัด ๆ และใช้ภาพชั้นหน้าได้')}
+   <div class="pp-cell" data-px="lk-lockpreview"><span class="pp-cell-lb">${ICON.lock} ดูหน้าล็อก</span><span class="pp-cell-val">${ICON.chevron}</span></div>
+  </div>
+  <div class="pp-sec-label">วอลเปเปอร์มีมิติ</div>
+  <div class="pp-card">
+   <div class="pp-cell" data-px="lk-depth-pick"><span class="pp-cell-lb" style="flex-direction:column;align-items:flex-start;gap:2px"><span>${ICON.upload || ''} ใส่ภาพชั้นหน้า (PNG พื้นใส)</span><span style="font-size:11px;color:var(--pp-txt3);line-height:1.4">ตัดคนหรือสิ่งของออกจากวอลเปเปอร์รูปเดียวกันแล้วเซฟเป็น PNG พื้นใส ภาพจะลอยทับนาฬิกาเหมือน iPhone</span></span><span class="pp-cell-val">${cfg.lkDepth ? 'ใส่แล้ว' : ''}${ICON.chevron}</span></div>
+   ${cfg.lkDepth ? `<div class="pp-cell"><button class="pp-btn danger" data-px="lk-depth-clear">เอาภาพชั้นหน้าออก</button></div>` : ''}
+  </div>
+  <div class="pp-sec-label">เสียงข้อความเข้า</div>
+  <div class="pp-card">
+   <div class="pp-cell"><span class="pp-cell-lb">เสียงเริ่มต้น</span><select class="pp-sel" id="pp-lk-tone">${ppLkToneOptions(cfg.lkMsgTone || 'none', false)}</select></div>
+   <div class="pp-cell"><span class="pp-cell-lb">ความดัง</span><input type="range" id="pp-lk-vol" min="0" max="1" step="0.05" value="${cfg.lkToneVol ?? .5}" style="flex:1;max-width:52%"></div>
+   <div class="pp-cell pp-lk-tonerow">${Object.keys(PP_LK_TONES).map(k => `<button class="pp-btn" data-px="lk-tone-try" data-id="${k}">${esc(PP_LK_TONES[k].name)}</button>`).join('')}</div>
+  </div>
+  <div class="pp-hint">ตั้งเสียงแยกรายคนได้ที่ ตั้งค่าแชท ของคนนั้น · โหมดโฟกัสและแชทที่ปิดเสียงจะไม่ดัง</div>
+  <div class="pp-sec-label">ลูกเล่น</div>
+  <div class="pp-card">
+   ${sw('pp-lk-zoom', cfg.lkZoomAnim !== false, 'เปิดแอพซูมออกจากไอคอน', '')}
+   ${sw('pp-lk-live', cfg.lkLive !== false, 'Live Activity บนเกาะ', 'สายที่ย่อไว้ เพลงที่เล่นอยู่ และของที่กำลังมาส่ง ค้างไว้บนเกาะ แตะเพื่อเปิด')}
+   ${sw('pp-px-eralang', cfg.eraLang !== false, 'ชื่อแอพเปลี่ยนตามยุคของเครื่อง', 'ยุคแฟนตาซีเป็นสาส์นเวท ยุคไอน้ำเป็นโทรเลข')}
+  </div>`;
+}
+function ppLkClick(a, el) {
+ const cfg = getCfg();
+ if (a === 'lk-go') { const to = el.dataset.to; if (to === 'call' && ppCall) ppResumeCall(); else ppNav(to); return true; }
+ if (a === 'lk-font') { cfg.lkLockFont = el.dataset.id; saveCfg(); renderSetPage(); return true; }
+ if (a === 'lk-tone-try') { if (!ppLkPlayTone(el.dataset.id)) ppToast('เบราว์เซอร์นี้เล่นเสียงสังเคราะห์ไม่ได้'); return true; }
+ if (a === 'lk-depth-pick') { ppLkPickDepth(); return true; }
+ if (a === 'lk-depth-clear') { cfg.lkDepth = false; saveCfg(); delMedia('home-wp-depth'); ppLkApplyDepth(); renderSetPage(); return true; }
+ if (a === 'lk-lockpreview') { const was = cfg.lockOn; cfg.lockOn = true; ppShowLock(); cfg.lockOn = was; return true; }
+ return false;
+}
+function ppLkChange(e) {
+ const t = e.target, cfg = getCfg();
+ if (t.id === 'pp-lk-color') { cfg.lkLockColor = /^#fff(fff)?$/i.test(t.value) ? '' : t.value; saveCfg(); return true; }
+ if (t.id === 'pp-lk-pos') { cfg.lkLockPos = t.value; saveCfg(); return true; }
+ if (t.id === 'pp-lk-tone') { cfg.lkMsgTone = t.value; saveCfg(); ppLkPlayTone(t.value); return true; }
+ if (t.id === 'pp-lk-vol') { cfg.lkToneVol = +t.value; saveCfg(); ppLkPlayTone(cfg.lkMsgTone && cfg.lkMsgTone !== 'none' ? cfg.lkMsgTone : 'ding'); return true; }
+ if (t.id === 'pp-lk-ctone' && ppActiveContact) { getChatStyle(ppActiveContact.id).msgTone = t.value; saveCfg(); if (t.value && t.value !== 'none') ppLkPlayTone(t.value); ppToast('ตั้งเสียงข้อความของแชทนี้แล้ว'); return true; }
+ if (t.id === 'pp-px-eralang') { cfg.eraLang = !!t.checked; saveCfg(); try { ppRenderApps(); } catch {} return true; }
+ return false;
+}
+
+const PP_LK_CSS = `
+@keyframes pp-app-zoom{from{opacity:.25;transform:scale(.14);border-radius:44px;}60%{opacity:1;}to{opacity:1;transform:none;border-radius:0;}}
+#pp-frame .pp-screen.pp-anim-zoom{animation:pp-app-zoom .42s cubic-bezier(.2,.9,.25,1.02) both;transform-origin:var(--pp-zx,50%) var(--pp-zy,50%);overflow:hidden;}
+@media (prefers-reduced-motion: reduce){#pp-frame .pp-screen.pp-anim-zoom{animation:none !important;}}
+#pp-island.pp-island-compact{width:min(212px,62%);cursor:pointer;padding:0 12px;justify-content:space-between;}
+.pp-lk-la{display:flex;align-items:center;justify-content:space-between;width:100%;gap:10px;font-size:12px;font-weight:600;animation:pp-lk-in .4s .1s both;}
+@keyframes pp-lk-in{from{opacity:0}to{opacity:1}}
+.pp-lk-l{display:flex;align-items:center;gap:6px;min-width:0;}
+.pp-lk-l svg{width:14px;height:14px;flex-shrink:0;}
+.pp-lk-l b{color:#fff;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:92px;}
+.pp-lk-r{font-variant-numeric:tabular-nums;white-space:nowrap;}
+.pp-lk-bars{display:inline-flex;align-items:flex-end;gap:2px;height:12px;}
+.pp-lk-bars i{width:2.5px;height:100%;border-radius:2px;background:currentColor;animation:pp-lk-bar .9s ease-in-out infinite;}
+.pp-lk-bars i:nth-child(2){animation-delay:-.3s}.pp-lk-bars i:nth-child(3){animation-delay:-.6s}.pp-lk-bars i:nth-child(4){animation-delay:-.15s}
+@keyframes pp-lk-bar{0%,100%{transform:scaleY(.3)}50%{transform:scaleY(1)}}
+#pp-home>#pp-lk-depth{position:absolute;inset:-12%;z-index:1;pointer-events:none;background:center/cover no-repeat;}
+#pp-lock.pp-lk-top{justify-content:flex-start;padding-top:74px;}
+#pp-lock.pp-lk-clear{backdrop-filter:none;-webkit-backdrop-filter:none;background:transparent;}
+#pp-lock .pp-lk-lockwp{position:absolute;inset:0;z-index:-1;background-size:cover;background-position:center;}
+#pp-lock.pp-lk-clear{isolation:isolate;}
+#pp-lock .pp-lk-lockdepth{position:absolute;inset:0;z-index:0;pointer-events:none;background:center/cover no-repeat;}
+#pp-lock.pp-lk-clear > :not(.pp-lk-lockwp):not(.pp-lk-lockdepth){position:relative;z-index:1;}
+#pp-lock.pp-lk-clear > .pp-lock-clock{z-index:0;}
+#pp-lock > .pp-lock-hint{position:absolute !important;}
+.pp-lk-fonts{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:0 0 12px;}
+.pp-lk-font{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 4px;border-radius:14px;border:1.5px solid transparent;background:var(--pp-fill1);color:var(--pp-txt);cursor:pointer;}
+.pp-lk-font span{font-size:26px;line-height:1;}
+.pp-lk-font i{font-style:normal;font-size:10.5px;color:var(--pp-txt3);}
+.pp-lk-font.on{border-color:var(--pp-accent);}
+.pp-lk-tonerow{flex-wrap:wrap;gap:6px;justify-content:flex-start;}
+.pp-lk-tonerow .pp-btn{padding:5px 10px;font-size:12px;}
+`;
+console.log(`[pocket-phone] ${PP_VERSION} ท่อน 12 พร้อม - หน้าตาและลูกเล่น`);
 
 // ══════════════════════════════════════════════════════════
 // BOOT
