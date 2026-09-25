@@ -1,4 +1,5 @@
 // pocket-phone/index.js
+// ★ [2.54.0] ท่อน 9 "ฟีดคึกคัก" (ppFd*) — live/live_end/trend/ad/alt_caught · post: tags/reel/about · สำหรับคุณ
 // ★ [2.53.0] ท่อน 8 "แชทสมจริง" (ppCh*) — seen/typing/msg_react/edit/leak/unknown/reveal · แปล · บล็อกจริง · แชทลับ · ค้นตามชนิด · ธีมจากรูป
 // ★ [2.52.0] ท่อน 7 "สะพานอัจฉริยะ" (ppBr*) — ย่อแกนหลักอัตโนมัติ · งบโทเคน · ความคุ้ม · แนวโรล (PP_GENRES) · กู้เฟรมที่หาย · ดูก่อนส่ง · จังหวะ · ข้อห้าม · มือเดียว
 // ★ [2.51.0] ท่อน 6 "ยุคของเครื่อง" (ppEra*, PP_ERAS 13 แบบ) · โทเคนจริงเมื่อเปิดคีย์เวิร์ด (ppKwTokenStats, kwTurnHist)
@@ -25,7 +26,7 @@
 // getContext ล้วน · ไม่มี import/export · lazy + try/catch
 // ⚠️ รันเดี่ยวไม่ได้ ต้องแปะครบ 4 ท่อน
 
-const PP_VERSION = '2.53.0';
+const PP_VERSION = '2.54.0';
 const MODULE_NAME = 'pocket-phone';
 
 // ══════════════════════════════════════════════════════════
@@ -2943,6 +2944,7 @@ function ppBuildBridgeParts(actionBody, hay) {
   // ★ 2.8.0 บอกให้แท็กกันได้ในโพสต์และคอมเมนต์
   const mLine = ppMentionPromptLine();
   if (mLine) rows.push('  ' + mLine);
+  ppFdPromptLines().forEach(l => rows.push(l)); // ★ [2.54.0]
   let feedText = ppPromptText('feed', rows.join('\n'));
   // รายการโพสต์ที่รีได้ ต่อท้ายเฉพาะเมื่อยังไม่ได้แก้คำเอง
   if (!ppPromptIsEdited('feed')) {
@@ -2971,6 +2973,7 @@ function ppBuildBridgeParts(actionBody, hay) {
 
  if (bridgeOn('social')) put('social', ppPromptText('social', [
   `Social:`,
+  ...ppFdSocialLines(), // ★ [2.54.0]
   `  follow / follow_request / unfollow — {"type":"follow","from":"Name"}`,
   `  note — post your own 24h status note. {"type":"note","author":"Name","text":"status"}`,
   `    A status note is what THEY type about themselves, first person, like a caption. Max ~60 characters.`,
@@ -15269,14 +15272,14 @@ function postHTML(p, full) {
  <div class="pp-post-head">
  ${avHTML(av, postAuthorLabel(p)[0], 38)}
  <div class="pp-post-who">
- <div class="pp-post-name">${esc(postAuthorLabel(p))}${p.closeOnly ? ICON.users : ''}${vis === 'none' ? ICON.lock : ''}${toneBadge(p)}${heatBadge(p)}</div>
- <div class="pp-post-age">${esc(fmtNoteAge(p.ts))}${p.kind === 'news' ? ' · ข่าว' : ''}${p.edited ? ' · แก้ไขแล้ว' : ''}</div>
+ <div class="pp-post-name">${esc(postAuthorLabel(p))}${p.closeOnly ? ICON.users : ''}${vis === 'none' ? ICON.lock : ''}${toneBadge(p)}${heatBadge(p)}${ppFdNameBadge(p)}</div>
+ <div class="pp-post-age">${esc(fmtNoteAge(p.ts))}${p.kind === 'news' ? ' · ข่าว' : ''}${p.edited ? ' · แก้ไขแล้ว' : ''}${ppFdAgeExtra(p)}</div>
  </div>
  <button class="pp-post-more" data-postmenu="${esc(p.id)}">${ICON.menu}</button>
  </div>
  ${textBlock}
  ${isRepost ? quoteCardHTML(p.repostOf) : ''}
- ${media}${pollBlock}${qBlock}${sharedNote}
+ ${media || ppFdReelHTML(p)}${ppFdAfterHTML(p)}${pollBlock}${qBlock}${sharedNote}
  <div class="pp-post-actions">
  <button data-postlike="${esc(p.id)}"${liked ? ' class="on"' : ''}>${liked ? ICON.heart : ICON.heartOut}<span>${fmtCount(postTotalLikes(p))}</span></button>
  <button data-postopen="${esc(p.id)}">${ICON.comment}<span>${fmtCount(cmCount)}</span></button>
@@ -15296,13 +15299,14 @@ function renderFeedHome(scroll) {
  // โพสต์ที่เจ้าของเป็น acc:xxx ตกทั้งสามข้อ จึงถูกซ่อนทั้งที่มีอยู่จริง
  if (ppScopeActive()) {
   list = list.filter(p => {
-   if (ppIsMyAuthor(p.author) || p.kind === 'news') return true;
+   if (ppIsMyAuthor(p.author) || p.kind === 'news' || p.kind === 'ad') return true;
    const oid = ppPostOwnerContact(p);
    const c = oid ? findContact(oid) : null;
    return !!(c && ppContactInScope(c));
   });
  }
- scroll.innerHTML = storyTrayHTML()
+ if (ppFdMode === 'foryou' && !ppExploreTag) list = ppFdForYou(list); // ★ [2.54.0] สำหรับคุณ
+ scroll.innerHTML = storyTrayHTML() + ppFdLiveBarHTML() + ppFdSegHTML()
  + (ppExploreTag ? `<div class="pp-taglist"><button data-tagclear="1">${ICON.close} #${esc(ppExploreTag)}</button></div>` : '')
  + `<div class="pp-feed-list">${list.length
  ? list.map(p => postHTML(p, false)).join('')
@@ -15340,6 +15344,7 @@ function renderFeedExplore(scroll) {
      ? `กางครบ ${shown.length} คนแล้ว · กดย่อกลับเพื่อให้หน้าสั้นลง`
      : `แสดง ${shown.length} จาก ${people.length} คน · กดปุ่มทั้งหมดเพื่อกางครบ หรือพิมพ์ค้นหา`)
   : 'พิมพ์ในช่องค้นหาเพื่อกรองรายชื่อ'}</div>
+ ${ppFdTrendsHTML()}
  ${tags.length ? `<div class="pp-sec-label" style="padding:0 18px">แท็กมาแรง</div>
  <div class="pp-taglist">${tags.map(t => `<button data-tag="${esc(t)}">#${esc(t)}</button>`).join('')}</div>` : ''}
  ${top.length ? `<div class="pp-sec-label" style="padding:0 18px">5 อันดับยอดนิยม</div>
@@ -21011,6 +21016,19 @@ const PP_GUIDE_FAQ = [
    text: 'ใช้รูปเล็กลง หรือใช้ลิงก์แทนการดึงจากเครื่อง · รูปจากลิงก์ไม่กินพื้นที่และส่งต่อไปเครื่องคนอื่นได้ด้วย' },
 ];
 const PP_CHANGELOG = [
+ { v: '2.54.0', title: 'ฟีดคึกคัก: ไลฟ์สด เทรนด์ แท็กในรูป รีลส์ สำหรับคุณ โฆษณา โพสต์แซะ',
+   lines: [
+    'ไลฟ์สด ตัวละครเปิดไลฟ์ มีวงแหวน LIVE บนฟีด เข้าไปดูแล้วคอมเมนต์ไหลขึ้นเรื่อย ๆ ยอดคนดูขยับ หัวใจลอย พิมพ์คอมเมนต์เองได้ และบทหลักรู้ว่าเราคอมเมนต์อะไร',
+    'เทรนด์ เรื่องใหญ่ในโรลขึ้นเทรนด์พร้อมจำนวนโพสต์และเหตุผล อยู่บนสุดของหน้าสำรวจ แตะเพื่อดูโพสต์ในแท็กนั้น',
+    'แท็กในรูป ตัวละครแท็กเราในโพสต์ มีป้ายแท็กคุณและแจ้งเตือน',
+    'รีลส์ โพสต์แบบวิดีโอสั้นพร้อมคำบรรยายฉาก แตะเพื่อเล่น',
+    'หน้าสำหรับคุณ สลับจากกำลังติดตามได้ เรียงโพสต์ยอดนิยม ข่าว และโฆษณา',
+    'โฆษณาในโลกของเรื่อง มีป้ายได้รับการสนับสนุนและปุ่มกด',
+    'โพสต์แซะ ตัวละครโพสต์แซะใครบางคนโดยไม่เอ่ยชื่อ มีป้ายแซะใคร แตะเพื่อเดาว่าหมายถึงใคร',
+    'แอคหลุมโดนจับได้ ตัวละครรู้แล้วว่าบัญชีลับบัญชีไหนเป็นของเรา ระบบบันทึกว่าเขารู้แล้วด้วย',
+   ],
+   tip: 'ไลฟ์ เทรนด์ โฆษณาต้องเปิดโมดูลฟีดในหน้าสะพานเชื่อม ส่วนแอคหลุมโดนจับได้อยู่ในโมดูลโซเชียล' },
+
  { v: '2.53.0', title: 'แชทสมจริง: อ่านแล้วไม่ตอบ พิมพ์แล้วหยุด เบอร์แปลก แคปหลุด แชทลับ',
    lines: [
     'อ่านแล้วบอกเวลา เช่น อ่านแล้ว 21:04 และตัวละครเลือกอ่านแล้วไม่ตอบได้ ขึ้นว่าอ่านแล้ว · ไม่ตอบ',
@@ -26794,6 +26812,8 @@ function ppApplySyncEvent(rawEv) {
   return { ok: true, label: `สเตตัสของ ${dname(c)}` };
  }
 
+ const fdR = ppFdApplyEvent(type, ev); // ★ [2.54.0] ไลฟ์ เทรนด์ โฆษณา แอคหลุมโดนจับ
+ if (fdR) return fdR;
  const chR = ppChApplyEvent(type, ev); // ★ [2.53.0] อ่านแล้ว พิมพ์แล้วหยุด รีแอค แก้ข้อความ แคปหลุด เบอร์แปลก
  if (chR) return chR;
  const pxR = ppPxApplyEvent(type, ev); // ★ [2.50.0] อีเมล ปฏิทิน รูป ตำแหน่ง สถานะเครื่อง ส่งของ
@@ -26858,7 +26878,7 @@ function ppApplySyncBatchInner(payload) {
   if (blk) { blocked++; ppPushSyncEvent(false, t, '', `${dname(blk)} ถูกบล็อกอยู่`); ppLogBot('chat', `${dname(blk)} พยายามติดต่อ ${getUserDisplayName()} แต่ถูกบล็อกไว้ ข้อความไม่ถึง`); return; }
   try {
    const r = ppApplySyncEvent(ev);
-   try { const nev = ppNormalizeSyncEvent(ev) || {}; ppPxAfterEvent(nev.type, nev, r); ppChAfterEvent(nev.type, nev, r); } catch {} // ★ [2.50.0] [2.53.0]
+   try { const nev = ppNormalizeSyncEvent(ev) || {}; ppPxAfterEvent(nev.type, nev, r); ppChAfterEvent(nev.type, nev, r); ppFdAfterEvent(nev.type, nev, r); } catch {} // ★ [2.50.0] [2.53.0]
    if (r.ok) {
     applied++;
     if (r.label) labels.push(r.label);
@@ -31664,6 +31684,14 @@ async function ppPxClick(e) {
  switch (a) {
   case 'charge-on': ppPxSetCharging(true); return;
   case 'ch-filter': return ppChToggleFilter(el.dataset.k);
+  case 'live-open': return ppFdOpenLive(el.dataset.id);
+  case 'live-close': clearInterval(ppFdLiveTimer); document.getElementById('pp-fd-live')?.remove(); return;
+  case 'live-send': { const b = document.getElementById('pp-fd-live'); if (b && b._live) ppFdLiveSend(b._live); return; }
+  case 'live-heart': ppFdHeart(); ppFdHeart(); return;
+  case 'fd-mode': ppFdMode = el.dataset.m === 'foryou' ? 'foryou' : 'follow'; return renderFeed();
+  case 'fd-guess': return ppFdGuess(el.dataset.id);
+  case 'fd-reel': el.classList.toggle('playing'); return;
+  case 'fd-ad': { const ap = findPost(el.dataset.id); if (ap) { ppToast(`เปิดดู ${ap.authorName}`); ppLog('feed', `แตะดูโฆษณาของ ${ap.authorName}`); } return; }
   case 'lock-reset': return ppConfirm('ลบล็อกแชทลับทั้งหมด', 'แชทลับทุกห้องจะเปิดได้โดยไม่ต้องใส่รหัส ข้อความไม่หาย', () => { getCfg().chatLocks = {}; saveCfg(); renderSetPage(); ppToast('ลบล็อกแล้ว'); }, 'ลบล็อก');
   case 'br-genre': {
    const g = PP_GENRES.find(x => x.id === el.dataset.id);
@@ -31761,7 +31789,7 @@ function ppPxInit() {
  if (!document.getElementById('pp-px-css')) {
   const s = document.createElement('style');
   s.id = 'pp-px-css';
-  s.textContent = PP_PX_CSS + PP_BR_CSS + PP_CH_CSS;
+  s.textContent = PP_PX_CSS + PP_BR_CSS + PP_CH_CSS + PP_FD_CSS;
   document.head.appendChild(s);
  }
  f.addEventListener('click', ppPxClick, true);
@@ -33196,6 +33224,327 @@ function ppChRemoveLock(tid) {
  if (ppChIsOpen(tid)) run(); else ppChAskUnlock(tid, run);
 }
 console.log(`[pocket-phone] ${PP_VERSION} ท่อน 8 พร้อม - แชทสมจริง`);
+
+// ══════════════════════════════════════════════════════════
+// pocket-phone/index.js — 2.54.0 — ท่อน 9 (ฟีดคึกคัก)
+// ★ [2.54.0] ไลฟ์สด · เทรนด์ · แท็กในรูป · แอคหลุมโดนจับได้ · รีลส์ · หน้าสำหรับคุณ · โฆษณาในโลก · โพสต์แซะ
+// ══════════════════════════════════════════════════════════
+
+Object.assign(PP_TYPE_ALIAS, {
+ live: ['live', 'livestream', 'go_live', 'live_stream', 'start_live'],
+ live_end: ['live_end', 'end_live', 'stop_live'],
+ trend: ['trend', 'trending', 'hashtag_trend', 'viral'],
+ ad: ['ad', 'advert', 'sponsored', 'advertisement', 'promo'],
+ alt_caught: ['alt_caught', 'alt_exposed', 'account_exposed', 'found_alt', 'alt_discovered'],
+});
+(PP_TYPE_ALIAS.post || []).push('reel', 'reels', 'short_video', 'video_post');
+Object.assign(PP_TYPE_MOD, { live: 'feed', live_end: 'feed', trend: 'feed', ad: 'feed', alt_caught: 'social', reel: 'feed' });
+['live', 'live_end'].forEach(t => { if (!PP_SENDER_TYPES.includes(t)) PP_SENDER_TYPES.push(t); });
+PP_MOD_TYPES.feed = (PP_MOD_TYPES.feed || []).concat(['live', 'trend', 'ad']);
+function ppFdPromptLines() {
+ const un = getUserDisplayName();
+ return [
+  `  post extras — "tags":["${un}"] to tag people in the photo; "reel":"what the short video shows" for a video reel; "about":"Name" when the post is a vague jab at someone without naming them (only you know who).`,
+  `  live — start a livestream; give a few viewer comments. {"type":"live","from":"Name","title":"what the live is about","viewers":120,"comments":[{"who":"viewer name","text":"..."}]}`,
+  `  live_end — {"type":"live_end","from":"Name"}`,
+  `  trend — something from the story goes viral. {"type":"trend","tag":"hashtag without #","volume":12400,"note":"why it is trending"}`,
+  `  ad — an in-world advertisement shows up in the feed. {"type":"ad","brand":"brand name","text":"ad copy","cta":"button text"}`,
+];
+}
+function ppFdSocialLines() {
+ return [`  alt_caught — someone figures out that one of ${getUserDisplayName()}'s secret accounts belongs to them. {"type":"alt_caught","from":"Name","account":"@handle or name"}`];
+}
+
+// ── สถานะ ──
+function ppFd() {
+ const cfg = getCfg();
+ if (!cfg.fd || typeof cfg.fd !== 'object') cfg.fd = {};
+ const f = cfg.fd;
+ ['lives', 'trends'].forEach(k => { if (!Array.isArray(f[k])) f[k] = []; });
+ return f;
+}
+let ppFdMode = 'follow'; // follow | foryou
+function ppFdActiveLives() {
+ const now = Date.now();
+ return ppFd().lives.filter(l => !l.ended && now - l.start < 40 * 60000);
+}
+
+// ── จัดการเหตุการณ์ ──
+function ppFdApplyEvent(type, ev) {
+ const f = ppFd();
+ if (type === 'live') {
+  const c = ppSyncFindContact(ev.from || ev.author || ev.name, true);
+  if (!c) return { ok: false, reason: 'ไม่รู้ว่าใครไลฟ์' };
+  const comments = (Array.isArray(ev.comments) ? ev.comments : ppSyncTextLines(ev.comments || '', 20))
+   .map(x => typeof x === 'string' ? { who: 'ผู้ชม', text: x } : { who: String(x.who || x.from || 'ผู้ชม').slice(0, 24), text: String(x.text || '').slice(0, 140) }).filter(x => x.text).slice(0, 30);
+  f.lives = f.lives.filter(l => !(l.author === c.id && !l.ended));
+  const l = { id: 'lv' + newId(), author: c.id, title: String(ev.title || ev.text || 'ไลฟ์สด').slice(0, 90), start: Date.now(), viewers: Math.max(1, parseInt(ev.viewers, 10) || 30 + Math.floor(Math.random() * 200)), comments, shown: 0, mine: [], ended: false };
+  f.lives.push(l);
+  if (f.lives.length > 20) f.lives = f.lives.slice(-20);
+  saveCfg();
+  pushNotif(c.id, 'feed', `${dname(c)} กำลังไลฟ์: ${l.title}`);
+  islandNotify(c, `กำลังไลฟ์สด · ${l.title}`);
+  return { ok: true, label: `${dname(c)} เริ่มไลฟ์` };
+ }
+ if (type === 'live_end') {
+  const c = ppSyncFindContact(ev.from || ev.author || ev.name, false);
+  const l = c && f.lives.find(x => x.author === c.id && !x.ended);
+  if (!l) return { ok: false, noop: true };
+  l.ended = true; saveCfg();
+  return { ok: true, label: `${dname(c)} จบไลฟ์` };
+ }
+ if (type === 'trend') {
+  const tag = String(ev.tag || ev.hashtag || ev.text || '').replace(/^#/, '').trim().slice(0, 40);
+  if (!tag) return { ok: false, reason: 'ไม่มีแฮชแท็ก' };
+  const old = f.trends.find(x => x.tag === tag);
+  const vol = Math.max(10, parseInt(ev.volume, 10) || 1000 + Math.floor(Math.random() * 30000));
+  if (old) { old.volume = Math.max(old.volume, vol); old.ts = Date.now(); old.note = String(ev.note || old.note || '').slice(0, 120); }
+  else f.trends.push({ tag, volume: vol, note: String(ev.note || '').slice(0, 120), ts: Date.now() });
+  if (f.trends.length > 30) f.trends = f.trends.slice(-30);
+  saveCfg();
+  pushNotif('', 'feed', `#${tag} ติดเทรนด์`);
+  return { ok: true, label: `#${tag} ติดเทรนด์` };
+ }
+ if (type === 'ad') {
+  const brand = String(ev.brand || ev.from || ev.name || 'แบรนด์').slice(0, 40);
+  const text = ppSyncTextLines(ev.text, 3).join('\n');
+  if (!text) return { ok: false, reason: 'โฆษณาไม่มีข้อความ' };
+  getCfg().feedPosts.push({ id: newId(), author: 'ad:' + brand, kind: 'ad', authorName: brand, text: text.slice(0, 400), cta: String(ev.cta || 'ดูเพิ่มเติม').slice(0, 24), mediaKeys: [], mediaUrls: [], captions: [], visibility: 'all', ts: Date.now(), likes: [], extraLikes: Math.floor(Math.random() * 300), comments: [], views: {}, saves: 0 });
+  saveCfg();
+  return { ok: true, label: `โฆษณา ${brand}` };
+ }
+ if (type === 'alt_caught') {
+  const c = ppSyncFindContact(ev.from || ev.name, true);
+  const want = String(ev.account || ev.handle || '').replace(/^@/, '').trim().toLowerCase();
+  const acc = ppAccountsOf('user').filter(a => a.id !== 'main').find(a => !want || String(ppAccHandle(a.id) || '').toLowerCase() === want || String(ppAccName(a.id) || '').toLowerCase() === want)
+   || ppAccountsOf('user').filter(a => a.id !== 'main')[0];
+  if (!c || !acc) return { ok: false, reason: 'ไม่มีแอคหลุมให้จับได้' };
+  if (Array.isArray(acc.knownBy) && !acc.knownBy.includes(c.id)) acc.knownBy.push(c.id);
+  saveCfg();
+  pushNotif(c.id, 'feed', `${dname(c)} รู้แล้วว่า @${ppAccHandle(acc.id)} คือคุณ`);
+  islandNotify(c, `รู้แล้วว่า @${ppAccHandle(acc.id)} คือคุณ`);
+  ppLogBot('feed', `${dname(c)} จับได้ว่าแอค @${ppAccHandle(acc.id)} เป็นของ ${getUserDisplayName()}`);
+  return { ok: true, label: `${dname(c)} จับแอคหลุมได้` };
+ }
+ return null;
+}
+/** หลังโพสต์ถูกสร้าง: แท็ก รีลส์ โพสต์แซะ */
+function ppFdAfterEvent(type, ev, r) {
+ try {
+  if (!r || !r.ok || type !== 'post') return;
+  const c = ppSyncFindContact(ev.author || ev.from || ev.name, false);
+  if (!c) return;
+  const p = getFeedPosts().slice().reverse().find(x => x.author === c.id);
+  if (!p) return;
+  const tags = (Array.isArray(ev.tags) ? ev.tags : ev.tag ? [ev.tag] : []).map(String).filter(Boolean).slice(0, 6);
+  if (tags.length) {
+   p.tags = tags;
+   if (tags.some(t => ppIsUserName(t))) {
+    p.taggedUser = true;
+    pushNotif(c.id, 'feed', `${dname(c)} แท็กคุณในโพสต์`);
+    islandNotify(c, 'แท็กคุณในโพสต์');
+   }
+  }
+  const reel = ev.reel || ev.video || ev.scene;
+  if (reel) p.reel = String(reel === true ? p.text : reel).slice(0, 240);
+  if (ev.about) { const t = ppSyncFindContact(ev.about, false); p.about = t ? t.id : String(ev.about).slice(0, 40); }
+  saveCfg();
+ } catch (e) { console.warn('[pocket-phone] fd after', e); }
+}
+
+// ── การ์ดโพสต์ ──
+function ppFdNameBadge(p) {
+ let b = '';
+ if (p.taggedUser) b += `<span class="pp-fd-badge tag">${ICON.at || ICON.person}แท็กคุณ</span>`;
+ if (p.about) b += `<span class="pp-fd-badge vague" data-px="fd-guess" data-id="${esc(p.id)}">แซะใคร?</span>`;
+ return b;
+}
+function ppFdAgeExtra(p) {
+ if (p.kind === 'ad') return ' · ได้รับการสนับสนุน';
+ if (p.reel) return ' · รีลส์';
+ return '';
+}
+function ppFdReelHTML(p) {
+ if (!p.reel) return '';
+ const d = 8 + (ppPxHash(p.id) % 50);
+ return `<div class="pp-fd-reel" data-px="fd-reel" style="background:${ppPxGrad(p.id)}">
+  <span class="pp-fd-reel-play">${ICON.play}</span>
+  <span class="pp-fd-reel-scene">${esc(p.reel)}</span>
+  <span class="pp-fd-reel-dur">0:${String(d).padStart(2, '0')}</span>
+  <span class="pp-fd-reel-bar"><i></i></span></div>`;
+}
+function ppFdAfterHTML(p) {
+ let h = '';
+ if (p.tags && p.tags.length) h += `<div class="pp-fd-tags">${ICON.person}${p.tags.map(t => `<b>${esc(t)}</b>`).join(' ')}</div>`;
+ if (p.kind === 'ad') h += `<button class="pp-fd-cta" data-px="fd-ad" data-id="${esc(p.id)}">${esc(p.cta || 'ดูเพิ่มเติม')}${ICON.chevron}</button>`;
+ return h;
+}
+
+// ── หน้าฟีด: ไลฟ์ + กำลังติดตาม/สำหรับคุณ ──
+function ppFdLiveBarHTML() {
+ const lives = ppFdActiveLives().filter(l => { const c = findContact(l.author); return c && (!ppScopeActive() || ppContactInScope(c)); });
+ if (!lives.length) return '';
+ return `<div class="pp-fd-livebar">${lives.map(l => { const c = findContact(l.author); return `<button class="pp-fd-livecell" data-px="live-open" data-id="${esc(l.id)}">
+  <span class="pp-fd-livering">${contactAvatarHTML(c, 54)}<i>LIVE</i></span><span>${esc(dname(c))}</span></button>`; }).join('')}</div>`;
+}
+function ppFdSegHTML() {
+ return `<div class="pp-seg pp-fd-seg"><button class="${ppFdMode === 'follow' ? 'on' : ''}" data-px="fd-mode" data-m="follow">กำลังติดตาม</button><button class="${ppFdMode === 'foryou' ? 'on' : ''}" data-px="fd-mode" data-m="foryou">สำหรับคุณ</button></div>`;
+}
+/** สำหรับคุณ: โพสต์ยอดนิยมจากทุกคนในขอบเขต + ข่าว + โฆษณา ไม่รวมของเราเอง */
+function ppFdForYou(list) {
+ const score = p => (postTotalLikes(p) || 0) + (p.comments || []).length * 3 + (p.kind === 'ad' ? 5 : 0) - (Date.now() - (p.ts || 0)) / 3600000;
+ return list.concat(feedByTab('news')).filter(p => !ppIsMyAuthor(p.author)).sort((a, b) => score(b) - score(a));
+}
+function ppFdTrendsHTML() {
+ const t = ppFd().trends.slice().sort((a, b) => b.ts - a.ts).slice(0, 8);
+ if (!t.length) return '';
+ const fmt = n => n >= 1000 ? (n / 1000).toFixed(n >= 10000 ? 0 : 1) + 'K' : String(n);
+ return `<div class="pp-sec-label" style="padding:0 18px">เทรนด์ตอนนี้</div>
+ <div class="pp-card" style="margin:0 16px 10px">${t.map((x, i) => `<div class="pp-cell tap" data-tag="${esc(x.tag)}">
+  <span class="pp-cell-lb" style="flex-direction:column;align-items:flex-start;gap:1px"><span style="font-size:11px;color:var(--pp-txt3)">${i + 1} · กำลังมาแรง</span>
+  <b>#${esc(x.tag)}</b>${x.note ? `<span style="font-size:11.5px;color:var(--pp-txt3)">${esc(x.note)}</span>` : ''}</span>
+  <span class="pp-cell-val">${fmt(x.volume)} โพสต์</span></div>`).join('')}</div>`;
+}
+
+// ── หน้าไลฟ์ ──
+let ppFdLiveTimer = null;
+const PP_FD_CROWD = ['มาแล้ววว', 'สวยมาก', 'รอนานแล้ว', 'ทักทายค่า', 'ใครมาจากฟีดบ้าง', 'เสียงเบาไปนิด', 'ไลฟ์ยาว ๆ นะ', 'คิดถึงงง', 'ขอเพลงหน่อย', 'ฮาาา', 'กดใจรัว ๆ', 'แชร์แล้วนะ'];
+function ppFdOpenLive(id) {
+ const l = ppFd().lives.find(x => x.id === id);
+ if (!l) return;
+ const c = findContact(l.author);
+ document.getElementById('pp-fd-live')?.remove();
+ const box = document.createElement('div');
+ box.id = 'pp-fd-live';
+ box.innerHTML = `<div class="pp-fd-live-bg" style="background:${ppPxGrad(l.author)}"></div>
+  <div class="pp-fd-live-top">${contactAvatarHTML(c || { name: '?' }, 36)}<span><b>${esc(c ? dname(c) : '?')}</b><span>${esc(l.title)}</span></span>
+   <span class="pp-fd-live-tag">LIVE</span><span class="pp-fd-live-view" id="pp-fd-live-view">${ICON.eye}${l.viewers}</span>
+   <button class="pp-fd-live-x" data-px="live-close">${ICON.close}</button></div>
+  <div class="pp-fd-live-face">${contactAvatarHTML(c || { name: '?' }, 128)}<span class="pp-fd-live-wave"><i></i><i></i><i></i><i></i><i></i></span></div>
+  <div class="pp-fd-live-hearts" id="pp-fd-live-hearts"></div>
+  <div class="pp-fd-live-cm" id="pp-fd-live-cm"></div>
+  <div class="pp-fd-live-bar"><input id="pp-fd-live-in" placeholder="แสดงความคิดเห็น…"><button data-px="live-send">${ICON.send}</button><button data-px="live-heart">${ICON.heart}</button></div>`;
+ document.getElementById('pp-frame')?.appendChild(box);
+ const cm = box.querySelector('#pp-fd-live-cm');
+ const add = (who, text, me) => {
+  const d = document.createElement('div');
+  d.className = 'pp-fd-live-line' + (me ? ' me' : '');
+  d.innerHTML = `<b>${esc(who)}</b> ${esc(text)}`;
+  cm.appendChild(d);
+  while (cm.children.length > 14) cm.firstChild.remove();
+ };
+ l.comments.slice(0, l.shown).slice(-8).forEach(x => add(x.who, x.text));
+ l.mine.slice(-3).forEach(t => add(getUserDisplayName(), t, true));
+ clearInterval(ppFdLiveTimer);
+ ppFdLiveTimer = setInterval(() => {
+  if (!document.getElementById('pp-fd-live')) { clearInterval(ppFdLiveTimer); return; }
+  if (l.shown < l.comments.length) { const x = l.comments[l.shown++]; add(x.who, x.text); }
+  else if (Math.random() < 0.55) add(`user${100 + Math.floor(Math.random() * 900)}`, PP_FD_CROWD[Math.floor(Math.random() * PP_FD_CROWD.length)]);
+  l.viewers = Math.max(1, l.viewers + Math.round((Math.random() - 0.4) * 9));
+  const v = document.getElementById('pp-fd-live-view');
+  if (v) v.innerHTML = `${ICON.eye}${l.viewers}`;
+  if (Math.random() < 0.4) ppFdHeart();
+ }, 2200);
+ box.querySelector('#pp-fd-live-in')?.addEventListener('keydown', e => { if (e.key === 'Enter') ppFdLiveSend(l); });
+ box._live = l;
+}
+function ppFdHeart() {
+ const h = document.getElementById('pp-fd-live-hearts');
+ if (!h) return;
+ const s = document.createElement('span');
+ s.innerHTML = ICON.heart;
+ s.style.left = (10 + Math.random() * 30) + 'px';
+ s.style.color = ['#ff375f', '#ff9f0a', '#bf5af2', '#0a84ff'][Math.floor(Math.random() * 4)];
+ h.appendChild(s);
+ setTimeout(() => s.remove(), 2600);
+}
+function ppFdLiveSend(l) {
+ const inp = document.getElementById('pp-fd-live-in');
+ const t = String(inp && inp.value || '').trim();
+ if (!t) return;
+ inp.value = '';
+ l.mine.push(t.slice(0, 140));
+ saveCfg();
+ const cm = document.getElementById('pp-fd-live-cm');
+ if (cm) { const d = document.createElement('div'); d.className = 'pp-fd-live-line me'; d.innerHTML = `<b>${esc(getUserDisplayName())}</b> ${esc(t)}`; cm.appendChild(d); }
+ const c = findContact(l.author);
+ ppLog('feed', `คอมเมนต์ในไลฟ์ของ ${c ? dname(c) : '?'} (${l.title}) ว่า "${t.slice(0, 120)}"`);
+}
+function ppFdGuess(pid) {
+ const p = findPost(pid);
+ if (!p || !p.about) return;
+ const pool = getContacts().filter(c => !ppScopeActive() || ppContactInScope(c)).slice(0, 20);
+ const opts = pool.map(c => ({ label: dname(c), icon: ICON.person, onClick: () => {
+  const right = c.id === p.about || dname(c) === p.about;
+  ppToast(right ? `ใช่เลย โพสต์นี้แซะ ${dname(c)}` : 'ไม่ใช่คนนี้');
+  if (right) { p.aboutRevealed = true; saveCfg(); }
+ } }));
+ opts.push({ label: 'แซะฉันหรือเปล่า', icon: ICON.person, onClick: () => ppToast(ppIsUserName(p.about) ? 'ใช่ โพสต์นี้แซะคุณ' : 'ไม่ใช่คุณ') });
+ ppSheet('เดาว่าโพสต์นี้แซะใคร', opts);
+}
+
+const PP_FD_CSS = `
+.pp-fd-badge{display:inline-flex;align-items:center;gap:3px;margin-left:6px;padding:1px 7px;border-radius:9px;font-size:10.5px;font-weight:700;vertical-align:1px;}
+.pp-fd-badge svg{width:10px;height:10px;}
+.pp-fd-badge.tag{background:rgba(10,132,255,.18);color:#0a84ff;}
+.pp-fd-badge.vague{background:rgba(255,159,10,.2);color:#ff9f0a;cursor:pointer;}
+.pp-fd-tags{display:flex;align-items:center;gap:6px;flex-wrap:wrap;font-size:12px;color:var(--pp-txt3);padding:6px 14px 0;}
+.pp-fd-tags svg{width:13px;height:13px;}
+.pp-fd-tags b{color:var(--pp-txt);font-weight:600;}
+.pp-fd-reel{position:relative;aspect-ratio:9/13;margin:8px 0 0;display:flex;align-items:flex-end;padding:14px;box-sizing:border-box;color:#fff;overflow:hidden;cursor:pointer;}
+.pp-fd-reel::before{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.05) 40%,rgba(0,0,0,.6));}
+.pp-fd-reel-play{position:absolute;left:50%;top:44%;transform:translate(-50%,-50%);width:58px;height:58px;border-radius:50%;background:rgba(0,0,0,.35);backdrop-filter:blur(8px);display:flex;align-items:center;justify-content:center;}
+.pp-fd-reel-play svg{width:26px;height:26px;}
+.pp-fd-reel-scene{position:relative;font-size:13.5px;line-height:1.5;font-style:italic;max-width:85%;}
+.pp-fd-reel-dur{position:absolute;top:10px;right:12px;font-size:11px;font-weight:700;background:rgba(0,0,0,.45);padding:2px 7px;border-radius:8px;}
+.pp-fd-reel-bar{position:absolute;left:0;right:0;bottom:0;height:3px;background:rgba(255,255,255,.25);}
+.pp-fd-reel-bar i{display:block;height:100%;width:0;background:#fff;}
+.pp-fd-reel.playing .pp-fd-reel-bar i{animation:pp-fd-reelp 12s linear forwards;}
+.pp-fd-reel.playing .pp-fd-reel-play{opacity:0;transition:opacity .3s;}
+@keyframes pp-fd-reelp{to{width:100%}}
+.pp-fd-cta{display:flex;align-items:center;justify-content:space-between;width:calc(100% - 28px);margin:8px 14px 0;padding:10px 14px;border:none;border-radius:12px;background:var(--pp-accent);color:#fff;font-weight:700;font-size:14px;cursor:pointer;}
+.pp-fd-cta svg{width:14px;height:14px;}
+.pp-fd-seg{margin:6px 16px 4px !important;}
+.pp-fd-livebar{display:flex;gap:12px;overflow-x:auto;padding:4px 16px 8px;scrollbar-width:none;}
+.pp-fd-livecell{border:none;background:none;display:flex;flex-direction:column;align-items:center;gap:4px;color:var(--pp-txt);font-size:11.5px;cursor:pointer;flex-shrink:0;}
+.pp-fd-livering{position:relative;padding:3px;border-radius:50%;background:linear-gradient(45deg,#ff375f,#ff9f0a);}
+.pp-fd-livering .pp-avatar{border:2px solid var(--pp-card,#000);}
+.pp-fd-livering i{position:absolute;left:50%;bottom:-4px;transform:translateX(-50%);font-style:normal;font-size:9px;font-weight:800;padding:1px 6px;border-radius:5px;background:#ff375f;color:#fff;border:2px solid var(--pp-card,#000);}
+#pp-fd-live{position:absolute;inset:0;z-index:9000;display:flex;flex-direction:column;color:#fff;overflow:hidden;animation:pp-px-fade .3s ease;}
+.pp-fd-live-bg{position:absolute;inset:0;filter:saturate(1.2);}
+.pp-fd-live-bg::after{content:'';position:absolute;inset:0;background:linear-gradient(180deg,rgba(0,0,0,.45),rgba(0,0,0,.05) 35%,rgba(0,0,0,.7));}
+.pp-fd-live-top{position:relative;display:flex;align-items:center;gap:8px;padding:60px 12px 10px;}
+.pp-fd-live-top > span:nth-child(2){flex:1;min-width:0;display:flex;flex-direction:column;font-size:12px;}
+.pp-fd-live-top b{font-size:14px;}
+.pp-fd-live-tag{background:#ff375f;font-size:11px;font-weight:800;padding:3px 7px;border-radius:6px;}
+.pp-fd-live-view{display:inline-flex;align-items:center;gap:4px;background:rgba(0,0,0,.4);font-size:11.5px;padding:3px 8px;border-radius:6px;}
+.pp-fd-live-view svg{width:13px;height:13px;}
+.pp-fd-live-x{background:rgba(0,0,0,.4);border:none;color:#fff;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;cursor:pointer;}
+.pp-fd-live-x svg{width:14px;height:14px;}
+.pp-fd-live-cm{position:relative;margin-top:auto;display:flex;flex-direction:column;gap:6px;padding:0 12px 10px;max-height:46%;overflow:hidden;mask-image:linear-gradient(180deg,transparent,#000 30%);-webkit-mask-image:linear-gradient(180deg,transparent,#000 30%);}
+.pp-fd-live-line{font-size:13.5px;line-height:1.4;text-shadow:0 1px 3px rgba(0,0,0,.7);animation:pp-px-up .35s both;}
+.pp-fd-live-line b{opacity:.75;font-weight:700;margin-right:4px;}
+.pp-fd-live-line.me b{color:#ffd60a;opacity:1;}
+.pp-fd-live-bar{position:relative;display:flex;gap:8px;padding:8px 12px 26px;}
+.pp-fd-live-bar input{flex:1;border:1px solid rgba(255,255,255,.4);background:rgba(0,0,0,.3);color:#fff;border-radius:22px;padding:9px 14px;font-size:14px;}
+.pp-fd-live-bar input::placeholder{color:rgba(255,255,255,.65);}
+.pp-fd-live-bar button{width:40px;height:40px;border-radius:50%;border:none;background:rgba(0,0,0,.35);color:#fff;display:flex;align-items:center;justify-content:center;cursor:pointer;}
+.pp-fd-live-bar button:last-child{color:#ff375f;}
+.pp-fd-live-bar svg{width:19px;height:19px;}
+.pp-fd-live-face{position:absolute;left:50%;top:36%;transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:14px;}
+.pp-fd-live-face .pp-avatar{box-shadow:0 0 0 4px rgba(255,255,255,.25),0 0 0 14px rgba(255,55,95,.15);animation:pp-fd-pulse 2.4s ease-in-out infinite;}
+@keyframes pp-fd-pulse{0%,100%{box-shadow:0 0 0 4px rgba(255,255,255,.25),0 0 0 10px rgba(255,55,95,.18)}50%{box-shadow:0 0 0 4px rgba(255,255,255,.35),0 0 0 22px rgba(255,55,95,.05)}}
+.pp-fd-live-wave{display:flex;gap:4px;align-items:flex-end;height:22px;}
+.pp-fd-live-wave i{width:4px;background:#fff;border-radius:2px;animation:pp-fd-wave 1s ease-in-out infinite;}
+.pp-fd-live-wave i:nth-child(2){animation-delay:.15s}.pp-fd-live-wave i:nth-child(3){animation-delay:.3s}.pp-fd-live-wave i:nth-child(4){animation-delay:.45s}.pp-fd-live-wave i:nth-child(5){animation-delay:.6s}
+@keyframes pp-fd-wave{0%,100%{height:6px}50%{height:22px}}
+.pp-fd-live-hearts{position:absolute;right:14px;bottom:80px;width:60px;height:260px;pointer-events:none;}
+.pp-fd-live-hearts span{position:absolute;bottom:0;animation:pp-fd-float 2.6s ease-out forwards;}
+.pp-fd-live-hearts svg{width:24px;height:24px;}
+@keyframes pp-fd-float{0%{transform:translateY(0) scale(.6);opacity:0}15%{opacity:1}100%{transform:translateY(-240px) translateX(-14px) scale(1.1);opacity:0}}
+@media (prefers-reduced-motion: reduce){.pp-fd-live-hearts span,.pp-fd-live-line{animation:none !important;}}
+`;
+console.log(`[pocket-phone] ${PP_VERSION} ท่อน 9 พร้อม - ฟีดคึกคัก`);
 
 // ══════════════════════════════════════════════════════════
 // BOOT
