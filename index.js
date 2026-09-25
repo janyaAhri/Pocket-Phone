@@ -1,4 +1,5 @@
 // pocket-phone/index.js
+// ★ [2.53.0] ท่อน 8 "แชทสมจริง" (ppCh*) — seen/typing/msg_react/edit/leak/unknown/reveal · แปล · บล็อกจริง · แชทลับ · ค้นตามชนิด · ธีมจากรูป
 // ★ [2.52.0] ท่อน 7 "สะพานอัจฉริยะ" (ppBr*) — ย่อแกนหลักอัตโนมัติ · งบโทเคน · ความคุ้ม · แนวโรล (PP_GENRES) · กู้เฟรมที่หาย · ดูก่อนส่ง · จังหวะ · ข้อห้าม · มือเดียว
 // ★ [2.51.0] ท่อน 6 "ยุคของเครื่อง" (ppEra*, PP_ERAS 13 แบบ) · โทเคนจริงเมื่อเปิดคีย์เวิร์ด (ppKwTokenStats, kwTurnHist)
 // · ป๊อปอัพเบลอพื้นหลัง · พื้นหลังแชทอยู่บนชั้นตรึง #pp-chat-bgl · แผนที่ลาก/ซูมได้
@@ -24,7 +25,7 @@
 // getContext ล้วน · ไม่มี import/export · lazy + try/catch
 // ⚠️ รันเดี่ยวไม่ได้ ต้องแปะครบ 4 ท่อน
 
-const PP_VERSION = '2.52.0';
+const PP_VERSION = '2.53.0';
 const MODULE_NAME = 'pocket-phone';
 
 // ══════════════════════════════════════════════════════════
@@ -2912,6 +2913,7 @@ function ppBuildBridgeParts(actionBody, hay) {
   `  story_reply — {"type":"story_reply","from":"Name","text":"reply","storyId":"optional"}`,
   `  contact — a new person saves themselves into the phone. {"type":"contact","name":"Name"}`,
   `  nickname — the character renames the user in their own phone. Fires a one-time notice. {"type":"nickname","from":"Name","text":"what they saved the user as"}`,
+  ...ppChMsgPromptLines(), // ★ [2.53.0]
  ].join('\n')));
 
  if (bridgeOn('life')) put('life', ppPromptText('life', ppPxLifePrompt())); // ★ [2.50.0]
@@ -10175,6 +10177,7 @@ function buildPhone() {
  <div class="pp-search-wrap" id="pp-chat-search-wrap" style="display:none">
  <span class="pp-search-ico">${ICON.search}</span>
  <input class="pp-search" id="pp-chat-search" placeholder="ค้นหาในห้องนี้">
+ <div id="pp-ch-chipwrap">${ppChFilterChipsHTML()}</div>
  </div>
  <div class="pp-msgs" id="pp-msgs"></div>
  <div class="pp-sticker-tray" id="pp-sticker-tray">
@@ -11796,7 +11799,7 @@ function islandStatus(text) { clearTimeout(ppIslandTimer); ppIslandState = { cid
 function islandNotify(c, text) {
  if (c && c.id && isMuted(c.id)) return;
  // ★ [2.50.0] โหมดโฟกัส: เก็บเงียบไว้ ไม่เด้ง · เครื่องดับ: ไม่มีอะไรเด้งเลย
- try { if (ppPxDead()) return; if (ppPxSilenced(c)) { ppPxNoteSilenced(c, text); return; } } catch {}
+ try { if (ppPxDead()) return; if (ppPxSilenced(c)) { ppPxNoteSilenced(c, text); return; } if (c && c.id && ppChIsLocked(c.id)) text = 'ข้อความใหม่ในแชทลับ'; } catch {}
  clearTimeout(ppIslandTimer);
  ppIslandState = { cid: c ? c.id : '', name: c ? (c.name || dname(c)) : 'Pocket Phone', avatar: c ? c.avatar : '', kind: 'msg', text, notify: true };
  islandRefresh();
@@ -11881,6 +11884,7 @@ function pushThreadMsg(id, msg) {
  try { if (full.from === 'me' && ppPxOffline()) full.queued = true; } catch {} // ★ [2.50.0] รอส่ง
  getThread(id).push(full);
  ppStreakBump(id, full); // [2.39.0]
+ ppChNoteSticker(id, full); // ★ [2.53.0] สติกเกอร์โปรดของตัวละคร
  saveCfg();
 }
 function msgPreview(m) {
@@ -11940,7 +11944,7 @@ function renderContactList() {
  const draft = (getCfg().drafts || {})[threadKey(tid)];
  const preview = typing ? 'กำลังพิมพ์…'
  : (draft ? `ร่าง: ${draft}`
- : (last ? msgPreview(last) : (isGroup ? `สมาชิก ${(getGroup(tid)?.members || []).length} คน` : 'แตะเพื่อเริ่มแชท')));
+ : ppChIsLocked(tid) ? 'แชทลับ · แตะแล้วใส่รหัส' : (last ? msgPreview(last) : (isGroup ? `สมาชิก ${(getGroup(tid)?.members || []).length} คน` : 'แตะเพื่อเริ่มแชท')));
  const n = unreadOf(tid);
  const muted = isMuted(tid);
  return `<div class="pp-row${muted ? ' muted' : ''}" data-tid="${esc(tid)}">
@@ -12088,6 +12092,7 @@ function renderAddContacts() {
  }
 }
 function ppOpenThread(tid) {
+ if (ppChIsLocked(tid) && !ppChIsOpen(tid)) { ppChAskUnlock(tid, () => ppOpenThread(tid)); return; } // ★ [2.53.0] แชทลับ
  if (isGroupId(tid)) { const g = getGroup(tid); if (!g) return; ppActiveGroup = g; ppActiveContact = null; }
  else { const c = findContact(tid); if (!c) return; ppActiveContact = c; ppActiveGroup = null; }
  clearUnread(tid);
@@ -12535,7 +12540,7 @@ function browHTML(m, idx, grouped, tail, groupMode, tid) {
  const _px = ppPxMsgInner(m, idx);
  inner = _px.inner; extra = _px.extra || '';
  } else {
- inner = esc(m.text);
+ inner = esc(m.text) + (m.trans ? `<div class="pp-trans"><b>แปล</b>${esc(m.trans)}</div>` : ''); // ★ [2.53.0] แปลภาษา
  }
 
  let senderTag = '', avatarCol = '';
@@ -12557,7 +12562,7 @@ function browHTML(m, idx, grouped, tail, groupMode, tid) {
  const lastUser = th.filter(x => x.from === 'me' && !x.unsent).slice(-1)[0];
  if (lastUser === m) {
  const replied = th.slice(idx + 1).some(x => x.from === 'them' && !x.unsent);
- bits.push(`<span>${m.queued ? 'รอส่ง' : replied ? 'อ่านแล้ว' : 'ส่งแล้ว'}</span>`);
+ bits.push(`<span>${esc(ppChReadLabel(th, idx, m))}</span>`); // ★ [2.53.0] อ่านแล้วพร้อมเวลา
  }
  }
  const meta = bits.length ? `<div class="pp-msg-meta">${bits.join(' ')}</div>` : '';
@@ -12754,7 +12759,7 @@ function renderThread(keepScroll) {
  const msgs = document.getElementById('pp-msgs');
  if (!msgs) return;
  const th = getThread(tid);
- const filtered = ppChatFilter ? th.filter(m => String(m.text || m.caption || '').toLowerCase().includes(ppChatFilter.toLowerCase())) : th;
+ const filtered = ppChatFilter ? th.filter(m => ppChMsgMatch(m, ppChatFilter, tid)) : th; // ★ [2.53.0] ค้นตามชนิดได้
 
  if (!filtered.length) {
  msgs.innerHTML = `<div class="pp-sys">${ppChatFilter ? 'ไม่พบข้อความที่ค้นหา' : (isGroup ? 'เริ่มคุยในกลุ่ม แล้วกดปุ่มให้สมาชิกตอบ' : 'เริ่มบทสนทนา แตะฟองเพื่อจัดการ ปัดขวาเพื่อตอบ')}</div>`;
@@ -14141,7 +14146,9 @@ function ppChatMenu() {
  } });
  // ★ [2.50.0] แคปหน้าจอส่งต่อ + ซ่อนจากคนส่องมือถือ
  items.push({ label: 'แคปหน้าจอส่งต่อ', icon: ICON.shot, onClick: () => ppPxShotShare(tid) });
- items.push({ label: ppPxIsHidden(tid) ? 'เลิกซ่อนแชทนี้จากคนส่องมือถือ' : 'ซ่อนแชทนี้เวลามีคนส่องมือถือ', icon: ICON.lock, onClick: () => ppPxToggleHidden(tid) });
+ if (!isGroup && findContact(tid) && findContact(tid).avatar) items.push({ label: 'ใช้สีจากรูปของเขาเป็นธีมห้อง', icon: ICON.image, onClick: () => ppChThemeFromAvatar(tid) }); // ★ [2.53.0]
+ items.push({ label: ppPx().hidden.includes(tid) ? 'เลิกซ่อนแชทนี้จากคนส่องมือถือ' : 'ซ่อนแชทนี้เวลามีคนส่องมือถือ', icon: ICON.eye, onClick: () => ppPxToggleHidden(tid) });
+ items.push(ppChIsLocked(tid) ? { label: 'เลิกล็อกแชทลับ', icon: ICON.unlock, onClick: () => ppChRemoveLock(tid) } : { label: 'ล็อกเป็นแชทลับ (ใส่รหัส)', icon: ICON.lock, onClick: () => ppChSetLock(tid) }); // ★ [2.53.0]
  if (!isGroup && ppIsMainChar(tid)) { // ★ [2.49.0] สมาชิกกลุ่มทุกคน
  items.unshift({ label: 'สลับรูท (แชท SillyTavern)', icon: ICON.messages, onClick: ppOpenRouteSwitcher });
  // ★ 2.4.0 ย้ายแชทระหว่างรูท
@@ -21004,6 +21011,22 @@ const PP_GUIDE_FAQ = [
    text: 'ใช้รูปเล็กลง หรือใช้ลิงก์แทนการดึงจากเครื่อง · รูปจากลิงก์ไม่กินพื้นที่และส่งต่อไปเครื่องคนอื่นได้ด้วย' },
 ];
 const PP_CHANGELOG = [
+ { v: '2.53.0', title: 'แชทสมจริง: อ่านแล้วไม่ตอบ พิมพ์แล้วหยุด เบอร์แปลก แคปหลุด แชทลับ',
+   lines: [
+    'อ่านแล้วบอกเวลา เช่น อ่านแล้ว 21:04 และตัวละครเลือกอ่านแล้วไม่ตอบได้ ขึ้นว่าอ่านแล้ว · ไม่ตอบ',
+    'พิมพ์อยู่แล้วหยุด ตัวละครลังเล พิมพ์แล้วไม่ส่ง เห็นได้ทั้งในห้องแชทและ Dynamic Island',
+    'ตัวละครในบทหลักกดรีแอคข้อความเรา แก้ข้อความตัวเองจนขึ้นว่าแก้ไขแล้ว และตอบกลับเจาะจงข้อความที่เราพิมพ์ได้',
+    'แปลภาษาในแชท ตัวละครต่างชาติพิมพ์ภาษาตัวเอง มีคำแปลใต้ฟอง',
+    'แคปหลุด มีคนส่งแคปหน้าจอกลุ่มที่เราไม่ได้อยู่มาให้ เห็นว่าเขาคุยอะไรกันลับหลัง',
+    'เบอร์ไม่รู้จัก ข้อความหรือสายจากเบอร์แปลก บอทรู้ว่าจริง ๆ แล้วเป็นใครแต่เราไม่รู้ จนกว่าเรื่องจะเปิดเผย แล้วแชทย้ายไปรวมกับคนนั้นเอง',
+    'บล็อกมีผลจริง คนที่ถูกบล็อกส่งอะไรเข้ามือถือไม่ได้ บทหลักรู้ว่าโดนบล็อก และอาจหาทางติดต่อทางอื่น',
+    'แชทลับ ล็อกห้องแชทด้วยรหัส รายการแชทไม่โชว์ข้อความ แจ้งเตือนไม่บอกเนื้อหา คนที่ส่องมือถือไม่เห็น',
+    'ค้นหาในแชทตามชนิด รูป เสียง ตำแหน่ง ลิงก์ ติดดาว ของฉัน ของเขา แก้ไขแล้ว และผสมกับคำค้นได้',
+    'ใช้สีจากรูปของตัวละครเป็นธีมห้องแชท',
+    'ตัวละครมีสติกเกอร์โปรด ระบบจำว่าเขาใช้อันไหนบ่อย แล้วบอกให้ใช้เป็นนิสัย',
+   ],
+   tip: 'ล็อกแชทลับกับใช้สีจากรูปอยู่ในเมนูสามขีดของห้องแชท ส่วนตัวกรองค้นหาอยู่ใต้ช่องค้นหาในห้อง' },
+
  { v: '2.52.0', title: 'สะพานอัจฉริยะ: ย่อคำสั่งเอง งบโทเคน แนวโรลสำเร็จรูป กู้ของที่บอทลืมแนบ',
    lines: [
     'ย่อคำสั่งแกนหลักอัตโนมัติ บอทแนบข้อมูลถูกติดกันสองเทิร์นแล้ว เทิร์นต่อไปส่งฉบับย่อแทนฉบับเต็ม ส่งฉบับเต็มซ้ำทุก 8 เทิร์นกันลืม และทันทีที่บอทพลาด',
@@ -24332,7 +24355,7 @@ function botCapabilityLines(cid) {
  const lines = [];
  if (cfg.botCallKeyword && cid && !isGroupId(cid)) lines.push(ppCallPlanInstruction(cname(cid), un));
  const stickers = stickerPromptList();
- if (stickers) lines.push(`Sticker: [STICKER] label — labels: ${stickers}`);
+ if (stickers) { const fav = cid ? ppChFavStickers(cid) : []; lines.push(`Sticker: [STICKER] label — labels: ${stickers}${fav.length ? ` · your favourites (use these most, it is your habit): ${fav.join(', ')}` : ''}`); }
  lines.push(`Voice message: [VOICE] the exact words you speak aloud`);
  lines.push(`Your 24h status note: [NOTE] short status`);
  lines.push(`Share your location: [LOCATION] place | note`);
@@ -26111,6 +26134,8 @@ function ppSyncFindContact(name, create) {
  }
  nm = nm.replace(/^@/, '').replace(/^(คุณ|พี่|น้อง|นาย|นาง|นางสาว)\s+/i, '').trim();
  if (!nm) return null;
+ if (ppChIsUnknownName(nm)) return create ? ppChUnknownByName() : (getContacts().filter(c => c.unknown).slice(-1)[0] || null); // ★ [2.53.0]
+ if (/^\+?\d[\d\s-]{6,}$/.test(nm)) { const u = getContacts().find(c => c.unknown && c.number === nm); if (u) return u; if (create) return ppChUnknownContact(nm, ''); }
  // ★ [2.49.0] เป็นชื่อของผู้ใช้เอง ไม่ใช่คนอื่น — ห้ามสร้างคอนแทกต์ปลอม
  if (ppIsUserName(nm)) return null;
  const norm = ppNameNorm;
@@ -26769,6 +26794,8 @@ function ppApplySyncEvent(rawEv) {
   return { ok: true, label: `สเตตัสของ ${dname(c)}` };
  }
 
+ const chR = ppChApplyEvent(type, ev); // ★ [2.53.0] อ่านแล้ว พิมพ์แล้วหยุด รีแอค แก้ข้อความ แคปหลุด เบอร์แปลก
+ if (chR) return chR;
  const pxR = ppPxApplyEvent(type, ev); // ★ [2.50.0] อีเมล ปฏิทิน รูป ตำแหน่ง สถานะเครื่อง ส่งของ
  if (pxR) return pxR;
  return { ok: false, reason: `ไม่รู้จักประเภทนี้: ${type}` };
@@ -26826,9 +26853,12 @@ function ppApplySyncBatchInner(payload) {
  const echoLines = []; // ★ 2.2.1 เก็บไว้ส่งกลับเข้าโรลเทิร์นถัดไป
  events.forEach(ev => {
   const t = String((ev && (ev.type || ev.kind)) || '?');
+  // ★ [2.53.0] คนที่ถูกบล็อกติดต่อเข้ามาไม่ได้จริง
+  const blk = ppChBlockedSender(ev);
+  if (blk) { blocked++; ppPushSyncEvent(false, t, '', `${dname(blk)} ถูกบล็อกอยู่`); ppLogBot('chat', `${dname(blk)} พยายามติดต่อ ${getUserDisplayName()} แต่ถูกบล็อกไว้ ข้อความไม่ถึง`); return; }
   try {
    const r = ppApplySyncEvent(ev);
-   try { const nev = ppNormalizeSyncEvent(ev) || {}; ppPxAfterEvent(nev.type, nev, r); } catch {} // ★ [2.50.0]
+   try { const nev = ppNormalizeSyncEvent(ev) || {}; ppPxAfterEvent(nev.type, nev, r); ppChAfterEvent(nev.type, nev, r); } catch {} // ★ [2.50.0] [2.53.0]
    if (r.ok) {
     applied++;
     if (r.label) labels.push(r.label);
@@ -30666,7 +30696,7 @@ function ppPxInspectTriggered(chat) {
   return PP_PX_INSPECT_RX.some(rx => rx.test(hay));
  } catch { return false; }
 }
-function ppPxIsHidden(tid) { return ppPx().hidden.includes(tid); }
+function ppPxIsHidden(tid) { return ppPx().hidden.includes(tid) || ppChIsLocked(tid); }
 function ppPxToggleHidden(tid) {
  const p = ppPx();
  if (p.hidden.includes(tid)) p.hidden = p.hidden.filter(x => x !== tid);
@@ -30681,7 +30711,7 @@ function ppPxPhoneSnapshot() {
  const p = ppPx();
  const out = [];
  const tids = getContacts().filter(c => !isBlocked(c.id)).map(c => c.id).concat(getGroups().map(g => g.id))
-  .filter(id => !p.hidden.includes(id) && getThread(id).length)
+  .filter(id => !ppPxIsHidden(id) && getThread(id).length)
   .sort((a, b) => lastTs(b) - lastTs(a)).slice(0, 6);
  tids.forEach(id => {
   const th = getThread(id).filter(m => m.from !== 'sys' && !m.unsent).slice(-3);
@@ -30697,7 +30727,7 @@ function ppPxPhoneSnapshot() {
  const photos = ppPxAllPhotos().length;
  if (photos) out.push(`- Photos app: ${photos} photos`);
  out.push(`- Wallet balance: ${fmtMoney(walletBalanceGet())}`);
- if (p.hidden.length) out.push(`- There is a locked hidden folder that needs a passcode — its contents cannot be seen.`);
+ if (p.hidden.length || Object.keys(getCfg().chatLocks || {}).length) out.push(`- There is a locked hidden folder that needs a passcode — its contents cannot be seen.`);
  return out;
 }
 
@@ -30722,6 +30752,8 @@ function ppPxStateMsg(chat) {
    if (f) rows.push(`${un} has ${PP_PX_FOCUS[f].en} focus on: notifications are silenced and calls from anyone who is not a favorite go straight to missed calls. Characters texting them see "notifications silenced".`);
    const p = ppPx();
    if (p.shareLoc && p.myLoc) rows.push(`${un} is sharing live location with friends: ${p.myLoc}.`);
+   const blkLine = ppChBlockedLine(); if (blkLine) rows.push(blkLine); // ★ [2.53.0]
+   const unkLine = ppChUnknownLine(); if (unkLine) rows.push(unkLine);
    const active = p.orders.filter(o => !o.done && !o.incoming);
    if (active.length) rows.push(`${un} ordered on a delivery app: ${active.map(o => `${o.item}${o.to ? ` (sent to ${cname(o.to)})` : ''} arriving about ${fmtHM(new Date(o.eta))}`).join('; ')}.`);
   }
@@ -30790,7 +30822,7 @@ function ppPxMsgInner(m, idx) {
  if (!m || !m.type) return null;
  if (m.type === 'shot') {
   const rows = (m.lines || []).slice(0, 8).map(l => `<div class="pp-px-shot-row ${l.me ? 'me' : ''}"><span>${esc(l.text)}</span></div>`).join('');
-  return { extra: ' pp-bubble-shared', inner: `<div class="pp-px-shot"><div class="pp-px-shot-hd">${ICON.shot}<span>แคปหน้าจอ · แชทกับ ${esc(m.shotName || '')}</span></div><div class="pp-px-shot-body">${rows}</div></div>` };
+  return { extra: ' pp-bubble-shared', inner: `<div class="pp-px-shot${m.leak ? ' leak' : ''}"><div class="pp-px-shot-hd">${ICON.shot}<span>แคปหน้าจอ · ${m.leak ? 'กลุ่ม' : 'แชทกับ'} ${esc(m.shotName || '')}</span></div><div class="pp-px-shot-body">${rows}</div></div>` };
  }
  if (m.type === 'snap') {
   return { extra: ' pp-bubble-img', inner: `<div class="pp-px-snap" style="background:${ppPxGrad(m.caption || m.mid)}"><span class="pp-px-snap-ic">${ICON.camera}</span><span class="pp-px-snap-cap">${esc(m.caption || 'รูปภาพ')}</span></div>` };
@@ -31572,6 +31604,7 @@ function ppPxLifePageHTML() {
    ${sw('pp-px-calrp', cfg.pxCalRP !== false, 'ตัวละครจำนัดในปฏิทิน', 'ส่งนัด 7 วันข้างหน้าเข้าโรล')}
    ${sw('pp-px-presence', cfg.pxPresence !== false, 'ออนไลน์ล่าสุดใต้ชื่อ', '')}
    <div class="pp-cell"><span class="pp-cell-lb">แชทที่ซ่อนจากคนส่อง</span><span style="color:var(--pp-txt3)">${p.hidden.length} ห้อง</span></div>
+   ${Object.keys(cfg.chatLocks || {}).length ? `<div class="pp-cell"><span class="pp-cell-lb">แชทลับที่ล็อกรหัสไว้ ${Object.keys(cfg.chatLocks).length} ห้อง</span><button class="pp-btn danger" data-px="lock-reset">ลืมรหัส ลบล็อกทั้งหมด</button></div>` : ''}
   </div>
   <div class="pp-hint">ซ่อนแชทจากคนที่ส่องมือถือ: เปิดแชทนั้น แตะเมนูสามขีด แล้วเลือก "ซ่อนแชทนี้เวลามีคนส่องมือถือ"</div>
   <div class="pp-sec-label">หน้าจอ</div>
@@ -31630,6 +31663,8 @@ async function ppPxClick(e) {
  e.stopPropagation();
  switch (a) {
   case 'charge-on': ppPxSetCharging(true); return;
+  case 'ch-filter': return ppChToggleFilter(el.dataset.k);
+  case 'lock-reset': return ppConfirm('ลบล็อกแชทลับทั้งหมด', 'แชทลับทุกห้องจะเปิดได้โดยไม่ต้องใส่รหัส ข้อความไม่หาย', () => { getCfg().chatLocks = {}; saveCfg(); renderSetPage(); ppToast('ลบล็อกแล้ว'); }, 'ลบล็อก');
   case 'br-genre': {
    const g = PP_GENRES.find(x => x.id === el.dataset.id);
    if (!g) return;
@@ -31726,7 +31761,7 @@ function ppPxInit() {
  if (!document.getElementById('pp-px-css')) {
   const s = document.createElement('style');
   s.id = 'pp-px-css';
-  s.textContent = PP_PX_CSS + PP_BR_CSS;
+  s.textContent = PP_PX_CSS + PP_BR_CSS + PP_CH_CSS;
   document.head.appendChild(s);
  }
  f.addEventListener('click', ppPxClick, true);
@@ -32779,6 +32814,388 @@ const PP_BR_CSS = `
 #pp-frame.pp-bigtext .pp-label{font-size:13.5px !important;}
 `;
 console.log(`[pocket-phone] ${PP_VERSION} ท่อน 7 พร้อม - สะพานอัจฉริยะ`);
+
+// ══════════════════════════════════════════════════════════
+// pocket-phone/index.js — 2.53.0 — ท่อน 8 (แชทสมจริง)
+// ★ [2.53.0] อ่านแล้วพร้อมเวลา · อ่านแล้วไม่ตอบ · พิมพ์แล้วหยุด · บอทกดรีแอค/แก้ข้อความ/ตอบเจาะจง
+// · แปลภาษาในแชท · แคปหลุดจากกลุ่มที่เราไม่อยู่ · บล็อกมีผลจริง · เบอร์ไม่รู้จัก/เปิดเผยตัว
+// · ธีมห้องแชทจากรูปตัวละคร · ค้นหาในแชทตามชนิด · สติกเกอร์โปรดของตัวละคร
+// ══════════════════════════════════════════════════════════
+
+// ── ชนิดเหตุการณ์ใหม่ ──
+Object.assign(PP_TYPE_ALIAS, {
+ seen: ['seen', 'read', 'read_receipt', 'left_on_read', 'read_no_reply'],
+ typing: ['typing', 'typing_stop', 'typing_indicator', 'is_typing'],
+ msg_react: ['msg_react', 'reaction', 'react_message', 'react_to_message', 'message_reaction'],
+ edit: ['edit', 'edit_message', 'edited', 'message_edit'],
+ leak: ['leak', 'screenshot', 'group_leak', 'leaked_screenshot'],
+ unknown: ['unknown', 'unknown_number', 'anonymous', 'private_number', 'unknown_caller'],
+ reveal: ['reveal', 'reveal_number', 'number_reveal', 'unmask'],
+});
+['seen', 'typing', 'msg_react', 'edit', 'leak', 'unknown', 'reveal'].forEach(t => { PP_TYPE_MOD[t] = 'msg'; });
+['seen', 'typing', 'msg_react', 'edit', 'leak'].forEach(t => { if (!PP_SENDER_TYPES.includes(t)) PP_SENDER_TYPES.push(t); });
+PP_MOD_TYPES.msg = (PP_MOD_TYPES.msg || []).concat(['seen', 'typing', 'msg_react', 'edit', 'leak', 'unknown', 'reveal']);
+function ppChMsgPromptLines() {
+ const un = getUserDisplayName();
+ return [
+  `  seen — they read ${un}'s messages; add "noReply":true when they deliberately leave it on read. {"type":"seen","from":"Name","noReply":true}`,
+  `  typing — they start typing and stop without sending anything (hesitation). {"type":"typing","from":"Name","stop":true}`,
+  `  msg_react — react to ${un}'s message with one emoji. {"type":"msg_react","from":"Name","emoji":"❤️","target":"a few words of that message"}`,
+  `  edit — they edit a message they already sent. {"type":"edit","from":"Name","old":"a few words of the old text","text":"new text"}`,
+  `  dm extras — "replyTo":"a few words of ${un}'s message" to quote-reply it; for another language send "text" in that language plus "translation":"Thai translation".`,
+  `  leak — someone sends ${un} a screenshot of a group chat ${un} is not in. {"type":"leak","from":"Name","group":"group name","lines":[{"who":"Name","text":"..."}]}`,
+  `  unknown — a message or call from a number not saved in the phone; "realName" is who it really is (hidden from ${un}). {"type":"unknown","kind":"dm","number":"+66 8x xxx xxxx","text":["..."],"realName":"Name or empty"}`,
+  `  reveal — the unknown number is revealed. {"type":"reveal","number":"+66 ...","name":"Name"}`,
+ ];
+}
+
+// ── เบอร์ไม่รู้จัก ──
+function ppChRandNumber(seed) {
+ const h = ppPxHash(seed || String(Date.now()));
+ const d = n => String((h >>> n) % 10);
+ return `+66 ${['8', '9', '6'][h % 3]}${d(3)} ${d(5)}${d(7)}${d(9)} ${d(11)}${d(13)}${d(15)}${d(17)}`;
+}
+function ppChIsUnknownName(nm) { return /^(unknown( number| caller)?|private number|no caller id|เบอร์แปลก|เบอร์ไม่รู้จัก|ไม่ทราบเบอร์|ไม่ระบุเบอร์|ไม่รู้จัก)$/i.test(String(nm || '').trim()); }
+/** บอทเขียน from เป็น "Unknown number" — ใช้เบอร์แปลกล่าสุดที่ยังไม่เปิดเผยตัว ไม่สร้างเบอร์ใหม่ทุกครั้ง */
+function ppChUnknownByName() {
+ const last = getContacts().filter(c => c.unknown).slice(-1)[0];
+ return last || ppChUnknownContact('', '');
+}
+function ppChUnknownContact(number, realName) {
+ const cfg = getCfg();
+ const num = String(number || '').trim() || ppChRandNumber(realName || newId());
+ let c = cfg.contacts.find(x => x.unknown && x.number === num);
+ if (!c) {
+  c = { id: 'unk:' + newId(), name: num, number: num, avatar: '', npc: true, unknown: true, ownerCharId: ppSyncSpeakerId || currentCharacterId() || '' };
+  cfg.contacts.push(c);
+ }
+ if (realName && !ppIsUserName(realName)) c.realName = String(realName).slice(0, 60);
+ saveCfg();
+ return c;
+}
+/** เปิดเผยตัวตน: เปลี่ยนชื่อเบอร์นั้น ถ้ามีคอนแทกต์ชื่อนั้นอยู่แล้ว ย้ายแชทไปรวมกัน */
+function ppChReveal(number, name) {
+ const cfg = getCfg();
+ const u = cfg.contacts.find(x => x.unknown && (x.number === String(number || '').trim() || x.name === String(number || '').trim()))
+  || cfg.contacts.filter(x => x.unknown).slice(-1)[0];
+ if (!u || !name) return null;
+ const real = ppSyncFindContact(name, false);
+ if (real && real.id !== u.id) {
+  const from = getThread(u.id);
+  const to = getThread(real.id);
+  from.forEach(m => to.push(m));
+  to.sort((a, b) => (a.ts || 0) - (b.ts || 0));
+  delete cfg.threads[threadKey(u.id)];
+  cfg.contacts = cfg.contacts.filter(x => x.id !== u.id);
+  pushThreadMsg(real.id, { from: 'sys', type: 'sysline', text: `เบอร์ ${u.number} คือ ${dname(real)}` });
+  saveCfg();
+  return real;
+ }
+ u.name = String(name).slice(0, 60);
+ u.unknown = false;
+ pushThreadMsg(u.id, { from: 'sys', type: 'sysline', text: `เบอร์ ${u.number} คือ ${u.name}` });
+ saveCfg();
+ return u;
+}
+
+// ── จัดการเหตุการณ์ใหม่ ──
+function ppChFindMine(tid, snippet) {
+ const th = getThread(tid);
+ const mine = th.filter(m => m.from === 'me' && !m.unsent);
+ const sn = String(snippet || '').trim().toLowerCase();
+ if (sn) { const hit = mine.slice().reverse().find(m => String(m.text || m.caption || '').toLowerCase().includes(sn)); if (hit) return hit; }
+ return mine.slice(-1)[0] || null;
+}
+const PP_CH_TYPES = ['unknown', 'reveal', 'seen', 'typing', 'msg_react', 'edit', 'leak'];
+function ppChApplyEvent(type, ev) {
+ if (!PP_CH_TYPES.includes(type)) return null;
+ if (type === 'unknown') {
+  const c = ppChUnknownContact(ev.number || ev.phone, ev.realName || ev.real || '');
+  const kind = String(ev.kind || ev.via || 'dm').toLowerCase();
+  if (/call/.test(kind)) {
+   if (ev.live !== false && !ppCall && !ppPxBlockIncoming(c)) { ppIncomingCall(c); return { ok: true, label: `สายจากเบอร์ ${c.number}` }; }
+   if (!ppCall) ppPxMissCall(c, 'สายจากเบอร์ไม่รู้จัก');
+   return { ok: true, label: `สายที่ไม่ได้รับจาก ${c.number}` };
+  }
+  const lines = ppSyncTextLines(ev.text || ev.messages, 8);
+  if (!lines.length) return { ok: false, reason: 'ไม่มีข้อความ' };
+  lines.forEach(text => pushThreadMsg(c.id, { from: 'them', text }));
+  bumpUnread(c.id, lines.length);
+  pushNotif(c.id, 'msg', lines[0]);
+  islandNotify(c, lines[0]);
+  return { ok: true, label: `ข้อความจากเบอร์ ${c.number}` };
+ }
+ if (type === 'reveal') {
+  const c = ppChReveal(ev.number || ev.phone, ev.name || ev.realName || ev.from);
+  if (!c) return { ok: false, reason: 'ไม่มีเบอร์ให้เปิดเผย' };
+  islandNotify(c, 'เปิดเผยตัวตนแล้ว');
+  return { ok: true, label: `เบอร์นั้นคือ ${dname(c)}` };
+ }
+ const c = ppSyncFindContact(ev.from || ev.sender || ev.name, type !== 'seen' && type !== 'typing');
+ if (!c) return { ok: false, reason: 'ไม่รู้ว่าใคร' };
+ if (type === 'seen') {
+  const th = getThread(c.id);
+  const now = Date.now();
+  let n = 0;
+  th.forEach(m => { if (m.from === 'me' && !m.readAt) { m.readAt = now; n++; } });
+  const last = th.filter(m => m.from === 'me').slice(-1)[0];
+  if (last && (ev.noReply === true || /true|yes/i.test(String(ev.noReply || '')))) {
+   last.leftOnRead = true;
+   ppLogBot('chat', `${dname(c)} อ่านข้อความของ ${getUserDisplayName()} แล้วแต่ไม่ตอบ`);
+  }
+  saveCfg();
+  if (ppViewing(c.id)) renderThread();
+  return { ok: true, label: `${dname(c)} อ่านแล้ว${last && last.leftOnRead ? 'ไม่ตอบ' : ''}` };
+ }
+ if (type === 'typing') {
+  ppChShowTyping(c, ev.stop !== false);
+  return { ok: true, label: `${dname(c)} พิมพ์อยู่${ev.stop !== false ? 'แล้วหยุด' : ''}` };
+ }
+ if (type === 'msg_react') {
+  const m = ppChFindMine(c.id, ev.target || ev.message || ev.to_text);
+  const emoji = String(ev.emoji || ev.reaction || ev.text || '❤️').trim().slice(0, 8);
+  if (!m) return { ok: false, reason: 'ไม่มีข้อความให้กดรีแอค' };
+  m.react = { who: 'them', v: emoji, ts: Date.now() };
+  saveCfg();
+  pushNotif(c.id, 'msg', `${dname(c)} รีแอค ${emoji}`);
+  islandNotify(c, `รีแอค ${emoji} ข้อความของคุณ`);
+  if (ppViewing(c.id)) renderThread();
+  return { ok: true, label: `${dname(c)} รีแอค ${emoji}` };
+ }
+ if (type === 'edit') {
+  const th = getThread(c.id).filter(m => m.from === 'them' && !m.unsent && (m.type === undefined || m.type === 'text'));
+  const old = String(ev.old || ev.target || '').trim().toLowerCase();
+  const m = (old && th.slice().reverse().find(x => String(x.text || '').toLowerCase().includes(old))) || th.slice(-1)[0];
+  const text = ppSyncTextLines(ev.text || ev.newText, 1)[0];
+  if (!m || !text) return { ok: false, reason: 'ไม่มีข้อความให้แก้' };
+  if (!m.origText) m.origText = m.text;
+  m.text = text;
+  m.edited = true;
+  saveCfg();
+  if (ppViewing(c.id)) renderThread();
+  return { ok: true, label: `${dname(c)} แก้ข้อความ` };
+ }
+ if (type === 'leak') {
+  const raw = Array.isArray(ev.lines) ? ev.lines : ppSyncTextLines(ev.text || ev.messages, 10).map(t => { const i = t.indexOf(':'); return i > 0 && i < 30 ? { who: t.slice(0, i).trim(), text: t.slice(i + 1).trim() } : { who: '?', text: t }; });
+  const lines = raw.map(l => (typeof l === 'string' ? { who: '?', text: l } : { who: String(l.who || l.from || '?').slice(0, 30), text: String(l.text || '').slice(0, 160) })).filter(l => l.text).slice(0, 10)
+   .map(l => Object.assign(l, { me: ppIsUserName(l.who) }));
+  if (!lines.length) return { ok: false, reason: 'แคปไม่มีเนื้อหา' };
+  const gname = String(ev.group || ev.groupName || 'กลุ่มลับ').slice(0, 40);
+  pushThreadMsg(c.id, { from: 'them', type: 'shot', shotName: gname, leak: true, lines, text: `[แคปหน้าจอกลุ่ม ${gname}]\n` + lines.map(l => `${l.who}: ${l.text}`).join('\n') });
+  bumpUnread(c.id, 1);
+  pushNotif(c.id, 'msg', `${dname(c)} ส่งแคปหน้าจอกลุ่ม ${gname}`);
+  islandNotify(c, `ส่งแคปหน้าจอกลุ่ม ${gname}`);
+  return { ok: true, label: `${dname(c)} ส่งแคปกลุ่ม ${gname}` };
+ }
+ return null;
+}
+let ppChTypingTimer = null;
+function ppChShowTyping(c, willStop) {
+ try {
+  islandTyping(c);
+  if (ppViewing(c.id)) showTyping();
+  clearTimeout(ppChTypingTimer);
+  ppChTypingTimer = setTimeout(() => {
+   if (ppViewing(c.id)) hideTyping();
+   ppIslandState = null;
+   islandRefresh();
+   if (willStop) ppLogBot('chat', `${dname(c)} พิมพ์อยู่แล้วหยุดไป ไม่ได้ส่งอะไร`);
+  }, willStop ? 4200 : 6000);
+ } catch {}
+}
+/** หลังเหตุการณ์ dm: ตอบเจาะจง + คำแปล */
+function ppChAfterEvent(type, ev, r) {
+ try {
+  if (!r || !r.ok || r.bounced || type !== 'dm') return;
+  const c = ppSyncFindContact(ev.from || ev.contact || ev.name, false);
+  if (!c) return;
+  const lines = ppSyncTextLines(ev.text || ev.messages, 12);
+  const th = getThread(c.id);
+  const pushed = th.filter(m => m.from === 'them').slice(-lines.length);
+  if (!pushed.length) return;
+  if (ev.replyTo) {
+   const target = ppChFindMine(c.id, ev.replyTo);
+   if (target) pushed[0].replyTo = { kind: 'msg', text: String(target.text || target.caption || ev.replyTo).slice(0, 120), author: getUserDisplayName(), targetMid: target.mid };
+  }
+  const tr = ev.translation || ev.translated || ev.th;
+  if (tr) {
+   const trs = Array.isArray(tr) ? tr : String(tr).split(/\n+/);
+   pushed.forEach((m, i) => { const t = trs[i] || (i === 0 ? trs.join(' ') : ''); if (t) m.trans = String(t).slice(0, 400); });
+  }
+  saveCfg();
+ } catch (e) { console.warn('[pocket-phone] ch after', e); }
+}
+
+// ── อ่านแล้วพร้อมเวลา ──
+function ppChReadLabel(th, idx, m) {
+ if (m.queued) return 'รอส่ง';
+ let at = m.readAt || 0;
+ if (!at) {
+  const rep = th.slice(idx + 1).find(x => x.from === 'them' && !x.unsent);
+  if (rep) at = rep.ts || 0;
+ }
+ if (!at) return 'ส่งแล้ว';
+ return `อ่านแล้ว ${fmtHM(new Date(at))}${m.leftOnRead ? ' · ไม่ตอบ' : ''}`;
+}
+
+// ── บล็อกมีผลจริง ──
+/** คืน true ถ้าต้องกันเหตุการณ์นี้ เพราะคนส่งโดนบล็อก */
+function ppChBlockedSender(ev) {
+ try {
+  const t = String((ev && (ev.type || ev.kind)) || '').toLowerCase();
+  if (!/^(dm|voice|sticker|location|gift|poll|call|missed_call|photo|story_reply|msg_react|edit|leak|typing|seen|delivery|email)$/.test(ppNormalizeSyncEvent(ev).type || t)) return null;
+  const nm = ev.from || ev.sender || ev.contact || ev.name;
+  if (!nm) return null;
+  const c = ppSyncFindContact(nm, false);
+  return c && isBlocked(c.id) ? c : null;
+ } catch { return null; }
+}
+function ppChBlockedLine() {
+ const list = (getCfg().blocked || []).map(id => findContact(id)).filter(c => c && (!ppScopeActive() || ppContactInScope(c)));
+ if (!list.length) return '';
+ return `${getUserDisplayName()} has blocked: ${list.map(dname).join(', ')}. Their texts and calls never arrive (only one tick, calls never connect). They may notice and try another way — a different number (use "unknown"), a friend, or showing up in person.`;
+}
+function ppChUnknownLine() {
+ const list = getContacts().filter(c => c.unknown && c.realName && (!ppScopeActive() || ppContactInScope(c)));
+ if (!list.length) return '';
+ return `Unknown numbers in ${getUserDisplayName()}'s phone (${getUserDisplayName()} does not know who they are): ${list.map(c => `${c.number} = really ${c.realName}`).join('; ')}. Keep this consistent and only reveal it when the story does.`;
+}
+
+// ── ธีมห้องแชทจากรูปตัวละคร ──
+function ppChAvatarColor(src) {
+ return new Promise(resolve => {
+  if (!src) return resolve(null);
+  const img = new Image();
+  img.crossOrigin = 'anonymous';
+  const done = v => { clearTimeout(tm); resolve(v); };
+  const tm = setTimeout(() => resolve(null), 6000);
+  img.onload = () => {
+   try {
+    const cv = document.createElement('canvas');
+    cv.width = 24; cv.height = 24;
+    const g = cv.getContext('2d');
+    g.drawImage(img, 0, 0, 24, 24);
+    const d = g.getImageData(0, 0, 24, 24).data;
+    let best = null, bestScore = -1;
+    for (let i = 0; i < d.length; i += 4) {
+     const r = d[i], gg = d[i + 1], b = d[i + 2];
+     const mx = Math.max(r, gg, b), mn = Math.min(r, gg, b);
+     const sat = mx ? (mx - mn) / mx : 0;
+     const lum = (0.299 * r + 0.587 * gg + 0.114 * b) / 255;
+     const score = sat * (1 - Math.abs(lum - 0.5));
+     if (score > bestScore) { bestScore = score; best = [r, gg, b]; }
+    }
+    if (!best) return done(null);
+    done('#' + best.map(v => v.toString(16).padStart(2, '0')).join(''));
+   } catch { done(null); }
+  };
+  img.onerror = () => done(null);
+  img.src = src;
+ });
+}
+async function ppChThemeFromAvatar(tid) {
+ const c = findContact(tid);
+ if (!c || !c.avatar) { ppToast('คนนี้ยังไม่มีรูป'); return; }
+ const col = await ppChAvatarColor(c.avatar);
+ if (!col) { ppToast('ดึงสีจากรูปไม่ได้'); return; }
+ const st = getChatStyle(tid);
+ const n = parseInt(col.slice(1), 16);
+ const lum = (0.299 * ((n >> 16) & 255) + 0.587 * ((n >> 8) & 255) + 0.114 * (n & 255)) / 255;
+ st.bubble = col;
+ st.textColor = lum > 0.62 ? '#111111' : '#ffffff';
+ saveCfg();
+ applyChatStyle();
+ renderThread();
+ ppToast('ใช้สีจากรูปของ ' + dname(c) + ' แล้ว');
+}
+
+// ── ค้นหาในแชทตามชนิด ──
+const PP_CH_FILTERS = [
+ ['#รูป', 'รูป'], ['#เสียง', 'เสียง'], ['#ตำแหน่ง', 'ตำแหน่ง'], ['#ลิงก์', 'ลิงก์'], ['#ดาว', 'ติดดาว'], ['#ฉัน', 'ของฉัน'], ['#เขา', 'ของเขา'], ['#แก้', 'แก้ไขแล้ว'],
+];
+function ppChMsgMatch(m, filter, tid) {
+ const f = String(filter || '').trim().toLowerCase();
+ if (!f) return true;
+ const tokens = f.split(/\s+/);
+ return tokens.every(tk => {
+  if (tk === '#รูป') return m.type === 'image' || m.type === 'snap' || m.type === 'shot';
+  if (tk === '#เสียง') return m.type === 'voice';
+  if (tk === '#ตำแหน่ง') return m.type === 'location';
+  if (tk === '#ลิงก์') return /https?:\/\//i.test(String(m.text || ''));
+  if (tk === '#ดาว') return !!(m.mid && tid && isStarred(tid, m.mid));
+  if (tk === '#ฉัน') return m.from === 'me';
+  if (tk === '#เขา') return m.from === 'them';
+  if (tk === '#แก้') return !!m.edited;
+  return String(m.text || m.caption || m.place || '').toLowerCase().includes(tk);
+ });
+}
+function ppChFilterChipsHTML() {
+ return `<div class="pp-ch-chips">${PP_CH_FILTERS.map(([k, l]) => `<button class="pp-ch-chip${String(ppChatFilter).split(/\s+/).includes(k) ? ' on' : ''}" data-px="ch-filter" data-k="${esc(k)}">${esc(l)}</button>`).join('')}</div>`;
+}
+function ppChToggleFilter(k) {
+ const parts = String(ppChatFilter || '').split(/\s+/).filter(Boolean);
+ const i = parts.indexOf(k);
+ if (i >= 0) parts.splice(i, 1); else parts.push(k);
+ ppChatFilter = parts.join(' ');
+ const inp = document.getElementById('pp-chat-search');
+ if (inp) inp.value = ppChatFilter;
+ renderThread();
+ const wrap = document.getElementById('pp-ch-chipwrap');
+ if (wrap) wrap.innerHTML = ppChFilterChipsHTML();
+}
+
+// ── สติกเกอร์โปรดของตัวละคร ──
+function ppChNoteSticker(cid, m) {
+ try {
+  if (!m || m.from !== 'them' || m.type !== 'sticker' || !m.label) return;
+  const cfg = getCfg();
+  if (!cfg.stkFav || typeof cfg.stkFav !== 'object') cfg.stkFav = {};
+  const map = cfg.stkFav[cid] || (cfg.stkFav[cid] = {});
+  map[m.label] = (map[m.label] || 0) + 1;
+ } catch {}
+}
+function ppChFavStickers(cid) {
+ const map = (getCfg().stkFav || {})[cid] || {};
+ return Object.keys(map).sort((a, b) => map[b] - map[a]).slice(0, 4);
+}
+
+const PP_CH_CSS = `
+.pp-trans{margin-top:5px;padding-top:5px;border-top:.5px solid rgba(127,127,127,.35);font-size:13px;opacity:.85;}
+.pp-trans b{font-size:10.5px;font-weight:700;opacity:.7;margin-right:4px;}
+.pp-ch-chips{display:flex;gap:6px;overflow-x:auto;padding:6px 2px 2px;scrollbar-width:none;}
+.pp-ch-chips::-webkit-scrollbar{display:none;}
+.pp-ch-chip{flex-shrink:0;border:none;border-radius:999px;padding:5px 11px;font-size:12.5px;background:var(--pp-fill3);color:var(--pp-txt);cursor:pointer;}
+.pp-ch-chip.on{background:var(--pp-accent);color:#fff;}
+.pp-px-shot.leak .pp-px-shot-hd{background:rgba(255,69,58,.25);}
+`;
+// ── แชทลับ ใส่รหัสก่อนเปิด ──
+const ppChUnlocked = new Map(); // tid -> เวลาที่ปลดล็อก (หมดอายุ 5 นาที)
+function ppChIsLocked(tid) { return !!((getCfg().chatLocks || {})[tid]); }
+function ppChIsOpen(tid) { const t = ppChUnlocked.get(tid); return !!t && Date.now() - t < 300000; }
+function ppChSetLock(tid) {
+ ppPrompt('ตั้งรหัสแชทลับ', '', pin => {
+  pin = String(pin || '').trim();
+  if (pin.length < 4) { ppToast('รหัสต้องยาวอย่างน้อย 4 ตัว'); return; }
+  const cfg = getCfg();
+  if (!cfg.chatLocks || typeof cfg.chatLocks !== 'object') cfg.chatLocks = {};
+  cfg.chatLocks[tid] = ppLockHash(pin, tid);
+  saveCfg();
+  ppChUnlocked.set(tid, Date.now());
+  ppToast('ล็อกแชทนี้แล้ว · คนที่ส่องมือถือจะไม่เห็นด้วย');
+  renderContactList();
+ }, { rows: 1, placeholder: 'อย่างน้อย 4 ตัว', hint: 'ลืมรหัสแล้วเปิดไม่ได้ ต้องลบล็อกจากหน้าตั้งค่า > ชีวิตจริง' });
+}
+function ppChAskUnlock(tid, then) {
+ ppPrompt('แชทลับ · ใส่รหัส', '', pin => {
+  if (ppLockHash(String(pin || '').trim(), tid) === (getCfg().chatLocks || {})[tid]) { ppChUnlocked.set(tid, Date.now()); then && then(); }
+  else ppToast('รหัสไม่ถูก');
+ }, { rows: 1 });
+}
+function ppChRemoveLock(tid) {
+ const run = () => { delete getCfg().chatLocks[tid]; saveCfg(); ppToast('เลิกล็อกแชทนี้แล้ว'); renderContactList(); };
+ if (ppChIsOpen(tid)) run(); else ppChAskUnlock(tid, run);
+}
+console.log(`[pocket-phone] ${PP_VERSION} ท่อน 8 พร้อม - แชทสมจริง`);
 
 // ══════════════════════════════════════════════════════════
 // BOOT
