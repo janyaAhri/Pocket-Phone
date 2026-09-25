@@ -1,4 +1,7 @@
 // pocket-phone/index.js
+// ★ [2.50.0] ท่อน 5/5 "ชีวิตจริงในมือถือ" (ppPx*) — แบตจำลอง · ออฟไลน์จริง (คิวข้อความ) · โหมดโฟกัส
+// · ส่องมือถือ · ออนไลน์ล่าสุด · แคปหน้าจอ · ฝากข้อความเสียง · แอพปฏิทิน/อีเมล/รูปภาพ/แผนที่/ส่งของ
+// · event ใหม่ email/calendar/photo/place/phone_state/delivery (โมดูลสะพาน 'life') · หน้าตั้งค่า "ชีวิตจริง"
 // ★ [2.49.0] รองรับโรลเพลย์ทุกรูปแบบ: แชทกลุ่มของ SillyTavern (ppMainCharIds = ตัวละครหลักได้หลายคน,
 // currentCharacterId() ในกลุ่ม = คนที่กำลังพูด) · ชื่อผู้ใช้ยึด Persona (userNameFollowsPersona)
 // · การ์ดชื่อซ้ำกันเลือกตัวที่อยู่ในฉากก่อนเสมอ (ppPickByScene / ppCharIdFromStMessage ใช้ avatar)
@@ -18,7 +21,7 @@
 // getContext ล้วน · ไม่มี import/export · lazy + try/catch
 // ⚠️ รันเดี่ยวไม่ได้ ต้องแปะครบ 4 ท่อน
 
-const PP_VERSION = '2.49.0';
+const PP_VERSION = '2.50.0';
 const MODULE_NAME = 'pocket-phone';
 
 // ══════════════════════════════════════════════════════════
@@ -2900,6 +2903,8 @@ function ppBuildBridgeParts(actionBody, hay) {
   `  contact — a new person saves themselves into the phone. {"type":"contact","name":"Name"}`,
   `  nickname — the character renames the user in their own phone. Fires a one-time notice. {"type":"nickname","from":"Name","text":"what they saved the user as"}`,
  ].join('\n')));
+
+ if (bridgeOn('life')) put('life', ppPromptText('life', ppPxLifePrompt())); // ★ [2.50.0]
 
  if (bridgeOn('groupcall')) {
   const gp = [
@@ -9973,7 +9978,7 @@ function buildPhone() {
  <div id="pp-statusbar">
  <span class="pp-sb-left pp-clock">9:41</span>
  <div id="pp-island"></div>
- <span class="pp-sb-right">${ICON.signal}${ICON.wifi}${ICON.battery}
+ <span class="pp-sb-right">${ICON.signal}${ICON.wifi}<span id="pp-sb-focus"></span><span id="pp-sb-batt">${ICON.battery}</span>
  <button id="pp-close-btn" title="ปิด">${ICON.close}</button></span>
  </div>
 
@@ -10659,6 +10664,8 @@ function buildPhone() {
  <div class="pp-home-bar"></div>
  </div>
 
+ ${ppPxScreensHTML()}
+
  <!-- ══ TRANSCRIPT ══ -->
  <div class="pp-screen" id="pp-scr-transcript">
  <div class="pp-nav">
@@ -10782,7 +10789,7 @@ function startClock() {
  document.querySelectorAll('.pp-clock').forEach(e => e.textContent = t);
  const dl = document.getElementById('pp-home-date'); if (dl) dl.textContent = ppDateLabel();
  // ★ 2.20.0 ส่งแผนที่ถึงเวลาแล้ว เช็คทุกนาทีตอนเปิดมือถืออยู่
- try { if (!tick._n || Date.now() - tick._n > 55000) { tick._n = Date.now(); ppFlushBack(); ppFlushPlans(); } } catch {}
+ try { if ((!tick._n || Date.now() - tick._n > 55000) && !ppPxOffline()) { tick._n = Date.now(); ppFlushBack(); ppFlushPlans(); } } catch {} // ★ [2.50.0] ออฟไลน์ = รอก่อน
  };
  tick();
  ppClockTimer = setInterval(tick, 10000);
@@ -10847,6 +10854,7 @@ function updateHomeWidgets() {
  setBadge('feed', unreadNotifCount() + unseenMentions() + newsPosts().filter(p => !(cfg.newsSeen || {})[p.id]).length);
  // [2.39.0] เปลี่ยนจากเลขจำนวนรุ่นเป็นจุดแดงเฉย ๆ กันตัวเลขดูรกตา
  setBadge('helper', ppUnreadVersions().length, true);
+ try { ppPxHomeUpdate(setBadge); } catch {} // ★ [2.50.0] อีเมล ปฏิทิน ส่งของ + วิดเจ็ตวันนี้
  // ★ 1.4.0 เอาแอปข่าวออกจากหน้าโฮมแล้ว — ข่าวรวมอยู่ในเลขของฟีด
 }
 
@@ -10859,6 +10867,7 @@ function ppOpen() {
  if (getCfg().extOff) { try { toastr.info('Pocket Phone ปิดอยู่ · เปิดได้ที่แผงควบคุม'); } catch {} return; }
  applyTheme(); applyIsland(); applyWallpaper(); ppApplyDeco(); ppApplyStatusBar(); ppApplyCtrl(); startClock();
  ppApplyIglass(); ppLgWatch();
+ try { ppPxTick(); ppPxApplyStatus(); } catch {} // ★ [2.50.0] เดินแบตก่อนโชว์หน้าจอ
  try { ppShowLock(); } catch {}
  try {
   const sb = document.getElementById('pp-statusbar');
@@ -10973,6 +10982,7 @@ function ppOpenControl() {
    ${tile('bt', c.bt && !c.air, ICON.link || ICON.share, 'บลูทูธ')}
    ${tile('dnd', c.dnd, ICON.moon || ICON.bell, 'ห้ามรบกวน')}
   </div>
+  ${ppPxCcHTML()}
   <div class="pp-cc-row">
    ${tile('theme', getCfg().theme !== 'light', ICON.moon || ICON.eye, 'โหมดมืด')}
    ${tile('sb', getCfg().statusBar !== false, ICON.phone || ICON.gear, 'แถบสถานะ')}
@@ -11000,9 +11010,12 @@ function ppOpenControl() {
   ev.stopPropagation();
   const k = b.dataset.cc;
   const cfg = getCfg();
+  // ★ [2.50.0] ปุ่มชาร์จ โฟกัส สัญญาณ และห้ามรบกวนที่มีผลจริง
+  const pxDone = ppPxCcClick(k);
+  if (pxDone) { saveCfg(); ppApplyCtrl(); close(); if (pxDone !== 'close') setTimeout(ppOpenControl, 180); return; }
   if (k === 'theme') { cfg.theme = cfg.theme === 'light' ? 'dark' : 'light'; applyTheme(); }
   else if (k === 'sb') { cfg.statusBar = cfg.statusBar === false; ppApplyStatusBar(); }
-  else if (k === 'air') { c.air = !c.air; if (c.air) { c.wifi = false; c.bt = false; } }
+  else if (k === 'air') { c.air = !c.air; if (c.air) { c.wifi = false; c.bt = false; } ppLog('phone', c.air ? `${getUserDisplayName()} เปิดโหมดเครื่องบิน ติดต่อไม่ได้` : `${getUserDisplayName()} ปิดโหมดเครื่องบินแล้ว`); setTimeout(ppPxApplyStatus, 30); }
   else { if (c.air) { ppToast('ปิดโหมดบินก่อน'); return; } c[k] = !c[k]; }
   saveCfg(); ppApplyCtrl(); close(); setTimeout(ppOpenControl, 180);
  }));
@@ -11041,6 +11054,7 @@ function ppShowLock() {
   <div class="pp-lock-clock">${String(d.getHours()).padStart(2, '0')}:${String(d.getMinutes()).padStart(2, '0')}</div>
   <div class="pp-lock-date">${esc(ppDateLabel())}</div>
   ${n ? `<div class="pp-lock-notif">${ICON.messages}<span>${n} ข้อความที่ยังไม่อ่าน</span></div>` : ''}
+  ${ppPxLockStackHTML()}
   <div class="pp-lock-hint">ปัดขึ้นเพื่อปลดล็อก</div>`;
  f.appendChild(box);
  requestAnimationFrame(() => box.classList.add('show'));
@@ -11223,6 +11237,7 @@ function ppAppOpenAnim(screen) {
 function ppRenderScreen(screen, resetTransient) {
  try { ppAppOpenAnim(screen); } catch {}
  if (screen === 'home') updateHomeWidgets();
+ if (PP_PX_RENDER[screen]) ppPxRenderScreen(screen); // ★ [2.50.0] แอพชีวิตจริง
  if (screen === 'messages') { renderNotesRow(); renderContactList(); }
  if (screen === 'contacts') renderAddContacts();
  if (screen === 'archive') renderArchive();
@@ -11706,6 +11721,8 @@ function islandTyping(c) { clearTimeout(ppIslandTimer); ppIslandState = { cid: c
 function islandStatus(text) { clearTimeout(ppIslandTimer); ppIslandState = { cid: '', name: 'Pocket Phone', avatar: '', kind: 'msg', text }; islandRefresh(); }
 function islandNotify(c, text) {
  if (c && c.id && isMuted(c.id)) return;
+ // ★ [2.50.0] โหมดโฟกัส: เก็บเงียบไว้ ไม่เด้ง · เครื่องดับ: ไม่มีอะไรเด้งเลย
+ try { if (ppPxDead()) return; if (ppPxSilenced(c)) { ppPxNoteSilenced(c, text); return; } } catch {}
  clearTimeout(ppIslandTimer);
  ppIslandState = { cid: c ? c.id : '', name: c ? (c.name || dname(c)) : 'Pocket Phone', avatar: c ? c.avatar : '', kind: 'msg', text, notify: true };
  islandRefresh();
@@ -11787,6 +11804,7 @@ function ppOpenBotNote(cid) {
 // ══════════════════════════════════════════════════════════
 function pushThreadMsg(id, msg) {
  const full = Object.assign({ ts: Date.now(), mid: newMid() }, msg);
+ try { if (full.from === 'me' && ppPxOffline()) full.queued = true; } catch {} // ★ [2.50.0] รอส่ง
  getThread(id).push(full);
  ppStreakBump(id, full); // [2.39.0]
  saveCfg();
@@ -12418,7 +12436,7 @@ function browHTML(m, idx, grouped, tail, groupMode, tid) {
  inner = `<img class="pp-sticker-img" src="${esc(stickerMsgSrc(m))}"${m.stickerKey ? ` data-stkkey="${esc(m.stickerKey)}"` : ''} alt="${esc(m.label || 'สติกเกอร์')}" onerror="this.style.opacity='.3'">`;
  } else if (m.type === 'voice') {
  extra = ' pp-bubble-voice';
- inner = `<div class="pp-voice" data-voiceidx="${idx}"><span class="pp-voice-play">${ICON.play}</span>
+ inner = (m.voicemail ? `<div class="pp-voice-vm">${ICON.phoneApp}ข้อความเสียงที่ฝากไว้</div>` : '') + `<div class="pp-voice" data-voiceidx="${idx}"><span class="pp-voice-play">${ICON.play}</span>
  <span class="pp-voice-wave"><i></i><i></i><i></i><i></i><i></i><i></i><i></i><i></i></span>
  <span class="pp-voice-dur">${esc(fmtDur(m.dur))}</span></div>
  ${m.text ? `<div class="pp-voice-text">${esc(m.text)}</div>` : ''}`;
@@ -12439,6 +12457,9 @@ function browHTML(m, idx, grouped, tail, groupMode, tid) {
  } else if (m.type === 'sharedpost') {
  extra = ' pp-bubble-shared';
  inner = sharedPostCardHTML(m, idx);
+ } else if (ppPxMsgInner(m, idx)) { // ★ [2.50.0] แคปหน้าจอ รูปถ่าย ส่งของ
+ const _px = ppPxMsgInner(m, idx);
+ inner = _px.inner; extra = _px.extra || '';
  } else {
  inner = esc(m.text);
  }
@@ -12462,7 +12483,7 @@ function browHTML(m, idx, grouped, tail, groupMode, tid) {
  const lastUser = th.filter(x => x.from === 'me' && !x.unsent).slice(-1)[0];
  if (lastUser === m) {
  const replied = th.slice(idx + 1).some(x => x.from === 'them' && !x.unsent);
- bits.push(`<span>${replied ? 'อ่านแล้ว' : 'ส่งแล้ว'}</span>`);
+ bits.push(`<span>${m.queued ? 'รอส่ง' : replied ? 'อ่านแล้ว' : 'ส่งแล้ว'}</span>`);
  }
  }
  const meta = bits.length ? `<div class="pp-msg-meta">${bits.join(' ')}</div>` : '';
@@ -12635,7 +12656,7 @@ function renderThread(keepScroll) {
    } else if (getCfg().planMode && ppPlanPending(tid)) {
     txt = `มีแผนจะทักคุณ ${ppPlanPending(tid)} ครั้ง`;
    } else {
-    txt = 'ว่างอยู่';
+    txt = ppPxPresence(tid) || 'ว่างอยู่'; // ★ [2.50.0] ออนไลน์ล่าสุด
    }
   } catch {}
   stEl.textContent = txt;
@@ -14033,6 +14054,9 @@ function ppChatMenu() {
  ppToast('ล้างแล้ว');
  }, 'ล้าง');
  } });
+ // ★ [2.50.0] แคปหน้าจอส่งต่อ + ซ่อนจากคนส่องมือถือ
+ items.push({ label: 'แคปหน้าจอส่งต่อ', icon: ICON.shot, onClick: () => ppPxShotShare(tid) });
+ items.push({ label: ppPxIsHidden(tid) ? 'เลิกซ่อนแชทนี้จากคนส่องมือถือ' : 'ซ่อนแชทนี้เวลามีคนส่องมือถือ', icon: ICON.lock, onClick: () => ppPxToggleHidden(tid) });
  if (!isGroup && ppIsMainChar(tid)) { // ★ [2.49.0] สมาชิกกลุ่มทุกคน
  items.unshift({ label: 'สลับรูท (แชท SillyTavern)', icon: ICON.messages, onClick: ppOpenRouteSwitcher });
  // ★ 2.4.0 ย้ายแชทระหว่างรูท
@@ -14460,6 +14484,7 @@ function ppRenderCallScreen(c, status, ringing) {
 function ppStartCall() {
  const c = ppActiveContact;
  if (!c || ppCall || ppActiveGroup) return;
+ if (ppPxOffline()) { ppToast(`โทรไม่ได้ · ${ppPxOfflineReason()}`); return; } // ★ [2.50.0]
  ppCall = { c, incoming: false, connected: false, startTs: 0, timer: null, generating: false, transcript: [] };
  ppRenderCallScreen(c, 'กำลังโทร…', false);
  ppNav('call');
@@ -14468,6 +14493,7 @@ function ppStartCall() {
 }
 function ppIncomingCall(c) {
  if (!c || ppCall) return;
+ if (ppPxBlockIncoming(c)) return; // ★ [2.50.0] ออฟไลน์/โฟกัส = สายที่ไม่ได้รับ
  ppCall = { c, incoming: true, connected: false, startTs: 0, timer: null, generating: false, transcript: [] };
  ppRenderCallScreen(c, 'สายเรียกเข้า', true);
  if (!document.getElementById('pp-dialog')?.open) { islandNotify(c, 'สายเรียกเข้า'); ppOpen(); }
@@ -20893,6 +20919,22 @@ const PP_GUIDE_FAQ = [
    text: 'ใช้รูปเล็กลง หรือใช้ลิงก์แทนการดึงจากเครื่อง · รูปจากลิงก์ไม่กินพื้นที่และส่งต่อไปเครื่องคนอื่นได้ด้วย' },
 ];
 const PP_CHANGELOG = [
+ { v: '2.50.0', title: 'ชีวิตจริงในมือถือ: แบต สัญญาณ โฟกัส แอพใหม่ห้าตัว และส่องมือถือในโรล',
+   lines: [
+    'แบตเตอรี่จำลอง ลดตามเวลาที่ใช้ คุยสายนานกินแบตมาก เตือนที่ 20% 10% 5% แบตหมดแล้วเครื่องดับจริง เสียบชาร์จได้ที่ศูนย์ควบคุม ตัวเลขแบตอยู่ในตัวไอคอนแบบ iOS',
+    'โหมดเครื่องบิน ไม่มีสัญญาณ และแบตหมด มีผลจริงแล้ว ของที่บทหลักส่งมาจะค้างไว้แล้วเข้ามือถือทีเดียวตอนกลับมาออนไลน์ สายที่โทรมาระหว่างนั้นกลายเป็นสายที่ไม่ได้รับ ข้อความที่เราพิมพ์ขึ้นว่ารอส่ง',
+    'โหมดโฟกัส ห้ามรบกวน นอนหลับ ทำงาน ขับรถ ส่วนตัว แจ้งเตือนเงียบ สายจากคนที่ไม่ได้ปักหมุดกลายเป็นสายที่ไม่ได้รับ ปิดโฟกัสแล้วบอกว่าพลาดไปกี่รายการ',
+    'บทหลักรู้สถานะเครื่อง แบตใกล้หมด ไม่มีสัญญาณ เปิดโฟกัส แชร์ตำแหน่ง และของที่สั่ง ส่งไปเฉพาะตอนที่ไม่ปกติ จึงไม่กินโทเคนตอนเครื่องปกติ',
+    'ส่องมือถือ มีคนในโรลขอดูหรือแย่งมือถือ ระบบส่งแชท สาย อีเมล นัด และรูปที่อยู่ในเครื่องจริงให้บอท บอทจะไม่แต่งขึ้นมาเอง แชทไหนไม่อยากให้เห็น ซ่อนได้จากเมนูในแชท',
+    'แอพใหม่ ปฏิทิน อีเมล รูปภาพ แผนที่ และส่งของ นัดในโรลลงปฏิทินเอง ตัวละครจำนัดได้ อีเมลทางการ ตอบกลับได้ รูปทุกรูปรวมที่เดียว แผนที่มีหมุดสถานที่และเพื่อนที่แชร์ตำแหน่ง สั่งอาหารหรือของขวัญส่งไปให้ใครก็ได้ ของมาถึงแล้วบทหลักรู้',
+    'ตัวละครส่งรูปถ่าย ฝากข้อความเสียงตอนเราไม่รับสาย แชร์ตำแหน่งสด สั่งของมาให้เรา และทำให้แบตหรือสัญญาณของเราเปลี่ยนตามเรื่องได้',
+    'ใต้ชื่อในแชทบอกออนไลน์ หรือใช้งานล่าสุดกี่โมง',
+    'แคปหน้าจอแชทส่งให้อีกคนได้ คนที่ได้รับเห็นเนื้อหาที่แคปจริง',
+    'หน้าล็อกมีกองแจ้งเตือน วิดเจ็ตวันนี้บนหน้าจอหลักบอกนัดถัดไป ของที่กำลังมาส่ง อีเมลใหม่ และแบต',
+    'แก้บั๊กตัวกรองรายการซ้ำ เหตุการณ์สองอย่างที่ไม่มีข้อความ เช่นนัดสองนัดในเฟรมเดียว เคยถูกมองว่าซ้ำแล้วโดนตัดทิ้งไปหนึ่งอัน',
+   ],
+   tip: 'ตั้งค่าทุกอย่างอยู่ที่ ตั้งค่า > ชีวิตจริง ปิดทีละระบบได้ ส่วนโมดูลบอกบทหลักเปิดปิดได้ที่หน้าสะพานเชื่อม ชื่อ "ชีวิตจริงในมือถือ"' },
+
  { v: '2.49.0', title: 'รองรับแชทกลุ่ม ชื่อยึด Persona และตัวละครชื่อซ้ำกัน',
    lines: [
     'แชทกลุ่มของ SillyTavern ใช้กับมือถือได้เต็มที่แล้ว สมาชิกทุกคนในกลุ่มนับเป็นตัวละครหลัก ขอบเขตคอนแทกต์ การผูกรูท ประวัติโทร และ NPC ของทุกคนทำงานครบ ไม่ใช่แค่คนเดียว',
@@ -22663,6 +22705,7 @@ function renderSetPage() {
  const tk = k => ppTokLabel(cache && cache.mods ? cache.mods[k] : null);
  const personas = listUserPersonas();
 
+ if (key === 'life') { body.innerHTML = ppPxLifePageHTML(); return; } // ★ [2.50.0]
  if (key === 'glass') {
   const g = ppGx();
   const cfgSize = JSON.stringify(cfg).length;
@@ -24295,6 +24338,8 @@ async function ppGenerateReply() {
  }
  const input = document.getElementById('pp-input');
  if (input && input.value.trim()) ppSendUserMessage();
+ // ★ [2.50.0] ไม่มีสัญญาณ/แบตหมด = ข้อความค้าง "รอส่ง" ไม่ยิง API
+ if (ppPxOffline()) { ppToast(`ส่งไม่ออก · ${ppPxOfflineReason()} · ข้อความจะรอส่ง`); renderThread(); return; }
  // ส่งข้อความตั้งเวลาก่อน
  const cfgSched = getCfg().scheduled || {};
  if (cfgSched[c.id]) {
@@ -24719,6 +24764,7 @@ async function ppGroupGenerate() {
  if (!g || ppGeneratingId || ppCall) return;
  const input = document.getElementById('pp-input');
  if (input && input.value.trim()) ppSendUserMessage();
+ if (ppPxOffline()) { ppToast(`ส่งไม่ออก · ${ppPxOfflineReason()} · ข้อความจะรอส่ง`); renderThread(); return; } // ★ [2.50.0]
  const now = Date.now();
  if (now < ppGroupCooldownUntil) { ppToast(`รออีก ${Math.ceil((ppGroupCooldownUntil - now) / 1000)} วิ`); return; }
  const members = groupMemberContacts(g).filter(c => !isBlocked(c.id));
@@ -26052,6 +26098,7 @@ function ppSyncTypeAllowed(type) {
   lock_account: 'social', approve_follow: 'social',
   news: 'news',
  board_post: 'board', board_reply: 'board',
+  email: 'life', calendar: 'life', photo: 'life', place: 'life', phone_state: 'life', delivery: 'life', // ★ [2.50.0]
  }[type];
  if (!m) return true; // ไม่รู้จัก ปล่อยให้ตัวจัดการเดิมตอบว่า unsupported
  return bridgeOn(m);
@@ -26571,6 +26618,8 @@ function ppApplySyncEvent(rawEv) {
   return { ok: true, label: `สเตตัสของ ${dname(c)}` };
  }
 
+ const pxR = ppPxApplyEvent(type, ev); // ★ [2.50.0] อีเมล ปฏิทิน รูป ตำแหน่ง สถานะเครื่อง ส่งของ
+ if (pxR) return pxR;
  return { ok: false, reason: `ไม่รู้จักประเภทนี้: ${type}` };
 }
 /** ★ [2.49.0] ตัวละครเจ้าของข้อความล่าสุดในโรลหลัก (คนที่เขียน frame นี้) */
@@ -26590,7 +26639,11 @@ function ppApplySyncBatch(payload, speakerId) {
  // ★ [2.49.0] จำไว้ว่าใครเป็นคนเขียน frame นี้ — ใช้ตัดสินชื่อซ้ำ, from ว่าง, from ที่เป็น "me"/"{{char}}"
  const prevSpeaker = ppSyncSpeakerId;
  ppSyncSpeakerId = speakerId !== undefined ? (speakerId || null) : ppMainChatSpeakerId();
- try { return ppApplySyncBatchInner(payload); }
+ try {
+  // ★ [2.50.0] เครื่องออฟไลน์ (โหมดบิน / ไม่มีสัญญาณ / แบตหมด) — เก็บไว้ส่งตอนกลับมาออนไลน์
+  if (ppPxQueueBatch(payload, ppSyncSpeakerId)) return { valid: true, applied: 0, ignored: 0, blocked: 0, dupes: 0, detail: `เครื่องออฟไลน์ (${ppPxOfflineReason()}) เก็บไว้ส่งทีหลัง` };
+  return ppApplySyncBatchInner(payload);
+ }
  finally { ppSyncSpeakerId = prevSpeaker; }
 }
 function ppApplySyncBatchInner(payload) {
@@ -26609,7 +26662,8 @@ function ppApplySyncBatchInner(payload) {
   if (!ev || typeof ev !== 'object') return;
   const t = String(ev.type || ev.kind || '?').toLowerCase();
   const who = String(ev.from || ev.author || ev.sender || ev.name || ev.group || '').toLowerCase().trim();
-  const txt = JSON.stringify(ev.text || ev.messages || ev.amount || ev.label || ev.place || '').slice(0, 160).toLowerCase();
+  // ★ [2.50.0] รวมหัวเรื่อง/ชื่อนัด/คำบรรยาย/ของที่ส่ง ไม่งั้น event ชนิดใหม่ที่ไม่มี text จะถูกมองว่าซ้ำกันหมด
+  const txt = JSON.stringify([ev.text || ev.messages || ev.amount || ev.label || ev.place || '', ev.title || ev.subject || ev.caption || ev.item || '', ev.date || '', ev.time || ''] ).slice(0, 200).toLowerCase();
   const key = `${t}|${who}|${txt}`;
   if (seen.has(key)) { dupes++; return; }
   seen.add(key);
@@ -26623,6 +26677,7 @@ function ppApplySyncBatchInner(payload) {
   const t = String((ev && (ev.type || ev.kind)) || '?');
   try {
    const r = ppApplySyncEvent(ev);
+   try { const nev = ppNormalizeSyncEvent(ev) || {}; ppPxAfterEvent(nev.type, nev, r); } catch {} // ★ [2.50.0]
    if (r.ok) {
     applied++;
     if (r.label) labels.push(r.label);
@@ -26706,6 +26761,7 @@ function ppMainChatUiState() {
 let ppLastIdentityKey = '';
 function ppIdentityWatch() {
  try {
+  if (document.hidden) return; // ★ [2.50.0] แท็บไม่ได้เปิดอยู่ ไม่ต้องเฝ้า
   const key = `${getUserName()}|${currentUserPersonaId()}|${getUserDisplayName()}|${ppStGroupId() || ''}|${ppMainCharIds().join(',')}|${ppStChatId()}`;
   if (key === ppLastIdentityKey) return;
   const first = !ppLastIdentityKey;
@@ -26806,6 +26862,9 @@ window.ppGenInterceptor = function (chat, contextSize, abort, type) {
  // จำเป็นมากในแชทกลุ่ม เพราะไม่มีตัวละคร "ตัวเดียว" ให้เดา บอทจึงมักใส่ from ผิดคน
  const castMsg = ppSceneCastMsg();
  if (castMsg) chat.push({ is_user: false, is_system: true, mes: castMsg });
+ // ★ [2.50.0] สถานะเครื่อง (แบต สัญญาณ โฟกัส ตำแหน่ง ของที่สั่ง นัด) + ส่องมือถือ
+ const pxMsg = ppPxStateMsg(chat);
+ if (pxMsg) chat.push({ is_user: false, is_system: true, mes: pxMsg });
  // ★ 2.5.0 โปรไฟล์ NPC ที่มีคนเอ่ยชื่อในเทิร์นนี้
  const npcBlock = ppNpcKwBlock(ppKwHaystack(chat));
  if (npcBlock) chat.push({ is_user: false, is_system: true, mes: npcBlock });
@@ -27253,7 +27312,7 @@ function ppSyncFrameFingerprint(payload, rawBody) {
    const sig = list.map(ev => {
     const t = String((ev && (ev.type || ev.kind)) || '?').toLowerCase();
     const who = String((ev && (ev.from || ev.author || ev.sender || ev.name || ev.group)) || '').toLowerCase().trim();
-    const body = JSON.stringify((ev && (ev.text || ev.messages || ev.amount || ev.label || ev.place || ev.transcript)) || '').slice(0, 200).toLowerCase();
+    const body = JSON.stringify([(ev && (ev.text || ev.messages || ev.amount || ev.label || ev.place || ev.transcript)) || '', (ev && (ev.title || ev.subject || ev.caption || ev.item || ev.battery)) || '', (ev && ev.date) || '']).slice(0, 220).toLowerCase(); // ★ [2.50.0]
     return `${t}~${who}~${body}`;
    }).join('||');
    return 'F' + ppStableHash(sig);
@@ -30100,6 +30159,1426 @@ function injectPhone() {
 }
 
 // ══════════════════════════════════════════════════════════
+// pocket-phone/index.js — 2.50.0 — ท่อน 5/5 (ชีวิตจริงในมือถือ)
+// ★ [2.50.0] มือถือเป็นสิ่งของจริงในเรื่อง
+//   สถานะเครื่อง: แบตเตอรี่จำลอง · สัญญาณ/โหมดบินที่มีผลจริง · โหมดโฟกัส
+//   โรลเพลย์: ส่องมือถือ · ออนไลน์ล่าสุด · แคปหน้าจอส่งต่อ · ฝากข้อความเสียง · บอกสถานะเครื่องให้บทหลักรู้
+//   แอพใหม่: ปฏิทิน · อีเมล · รูปภาพ · แผนที่ · ส่งของ
+//   หน้าตา: แถบสถานะจริง · ศูนย์ควบคุมเพิ่มปุ่ม · กองแจ้งเตือนบนหน้าล็อก · วิดเจ็ตวันนี้
+// ทุกอย่างเก็บใน cfg.px ก้อนเดียว ปิดทีละระบบได้ในตั้งค่า > ชีวิตจริง
+// ══════════════════════════════════════════════════════════
+
+Object.assign(DEFAULTS, {
+ pxBattSim: true,        // จำลองแบตเตอรี่ (ลด/ชาร์จตามเวลาจริง)
+ pxBattCanDie: true,     // แบตหมดแล้วเครื่องดับจริง
+ pxBattSpeed: 'normal',  // slow | normal | fast
+ pxOfflineQueue: true,   // ไม่มีสัญญาณ = ข้อความค้างไว้ส่งทีหลัง
+ pxFocusFav: true,       // โหมดโฟกัสยังให้คนที่ปักหมุดโทรเข้าได้
+ pxPresence: true,       // แสดงออนไลน์ล่าสุดใต้ชื่อ
+ pxInspect: true,        // มีคนขอดูมือถือในโรล = ส่งของที่อยู่ในเครื่องจริงให้บอท
+ pxRpState: true,        // บอกบทหลักเรื่องแบต สัญญาณ โฟกัส ตำแหน่ง ของที่สั่ง
+ pxCalRP: true,          // บอกบทหลักเรื่องนัดในปฏิทิน 7 วันข้างหน้า
+ pxTodayWidget: true,    // วิดเจ็ตวันนี้บนหน้าจอหลัก
+ pxLockStack: true,      // กองแจ้งเตือนบนหน้าล็อก
+});
+DEFAULTS.bridgeMods.life = true;
+if (!LOG_SECTIONS.some(x => x[0] === 'phone')) LOG_SECTIONS.splice(LOG_SECTIONS.length - 1, 0, ['phone', '[มือถือ / ชีวิตจริง]']);
+
+Object.assign(ICON, {
+ moon: ICON.moon || `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M20.5 14.6A8.6 8.6 0 0 1 9.4 3.5a.6.6 0 0 0-.8-.7A9.6 9.6 0 1 0 21.2 15.4a.6.6 0 0 0-.7-.8z"/></svg>`,
+ plane: ICON.plane || `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M21 16v-2l-8-5V3.5a1.5 1.5 0 0 0-3 0V9l-8 5v2l8-2.5V19l-2 1.5V22l3.5-1 3.5 1v-1.5L13 19v-5.5l8 2.5z"/></svg>`,
+ mail: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h16a2 2 0 0 1 2 2v12a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2zm0 3.2V18h16V7.2l-8 5-8-5zM5.4 6l6.6 4.1L18.6 6H5.4z"/></svg>`,
+ bag: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M7 7V6a5 5 0 0 1 10 0v1h3l1 15H3L4 7h3zm2 0h6V6a3 3 0 0 0-6 0v1zm-2 3v2h2v-2H7zm8 0v2h2v-2h-2z"/></svg>`,
+ bolt: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M13 2 4 14h6l-1 8 9-12h-6l1-8z"/></svg>`,
+ map: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 3 3 5.3v15.4l6-2.3 6 2.3 6-2.3V3l-6 2.3L9 3zm1 2.6 4 1.5v11.3l-4-1.5V5.6zM5 6.7l3-1.1v11.3l-3 1.1V6.7zm11 .4 3-1.1v11.3l-3 1.1V7.1z"/></svg>`,
+ photos: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2.5a3 3 0 0 1 3 3v2.2l1.9-1.1a3 3 0 1 1 3 5.2L18 12l1.9 1.2a3 3 0 1 1-3 5.2L15 17.3v1.2a3 3 0 0 1-6 0v-1.2l-1.9 1.1a3 3 0 1 1-3-5.2L6 12l-1.9-1.2a3 3 0 1 1 3-5.2L9 6.7V5.5a3 3 0 0 1 3-3z"/></svg>`,
+ bed: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 5h2v8h6V8h7a3 3 0 0 1 3 3v8h-2v-3H5v3H3V5zm5 3.5A2 2 0 1 1 8 12.5a2 2 0 0 1 0-4z"/></svg>`,
+ car: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M5 11l1.6-4.5A2 2 0 0 1 8.5 5h7a2 2 0 0 1 1.9 1.5L19 11a2 2 0 0 1 2 2v5h-2v2h-2v-2H7v2H5v-2H3v-5a2 2 0 0 1 2-2zm2.2 0h9.6l-1.1-3.5a.8.8 0 0 0-.7-.5H9a.8.8 0 0 0-.7.5L7.2 11zM6.5 13.5a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3zm11 0a1.5 1.5 0 1 0 0 3 1.5 1.5 0 0 0 0-3z"/></svg>`,
+ briefcase: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M9 3h6a2 2 0 0 1 2 2v1h3a2 2 0 0 1 2 2v4H2V8a2 2 0 0 1 2-2h3V5a2 2 0 0 1 2-2zm0 3h6V5H9v1zM2 13.5h8V15h4v-1.5h8V19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2v-5.5z"/></svg>`,
+ nosignal: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M2.7 2.3 1.3 3.7 20.3 22.7l1.4-1.4L2.7 2.3zM18 4h3v12.2l-3-3V4zm-5 4h3v3.2l-3-3V8zM8 13h3v7H8v-7zm-5 3h3v4H3v-4z"/></svg>`,
+ shot: `<svg viewBox="0 0 24 24" fill="currentColor"><path d="M4 4h5v2H6v3H4V4zm11 0h5v5h-2V6h-3V4zM4 15h2v3h3v2H4v-5zm14 3v-3h2v5h-5v-2h3zM9 9h6v6H9V9z"/></svg>`,
+});
+
+/** ก้อนสถานะของระบบชีวิตจริงทั้งหมด */
+function ppPx() {
+ const cfg = getCfg();
+ if (!cfg.px || typeof cfg.px !== 'object') cfg.px = {};
+ const p = cfg.px;
+ if (!p.batt || typeof p.batt !== 'object') p.batt = { level: 86, charging: false, t: Date.now(), warned: {}, dead: false };
+ if (!p.batt.warned || typeof p.batt.warned !== 'object') p.batt.warned = {};
+ if (typeof p.focus !== 'string') p.focus = '';
+ if (typeof p.noSignal !== 'boolean') p.noSignal = false;
+ ['queue', 'mail', 'cal', 'places', 'orders', 'hidden', 'silenced'].forEach(k => { if (!Array.isArray(p[k])) p[k] = []; });
+ if (!p.people || typeof p.people !== 'object') p.people = {};
+ if (typeof p.myLoc !== 'string') p.myLoc = '';
+ if (typeof p.shareLoc !== 'boolean') p.shareLoc = false;
+ return p;
+}
+function ppPxDay(d) { return ymd(d instanceof Date ? d : new Date(d)); }
+function ppPxHash(s) { let h = 2166136261; const t = String(s || ''); for (let i = 0; i < t.length; i++) { h ^= t.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; }
+function ppPxAgo(ts) {
+ const m = Math.max(0, Math.round((Date.now() - (ts || 0)) / 60000));
+ if (m < 1) return 'เมื่อกี้';
+ if (m < 60) return `${m} นาทีที่แล้ว`;
+ const h = Math.round(m / 60);
+ if (h < 24) return `${h} ชม.ที่แล้ว`;
+ return `${Math.round(h / 24)} วันที่แล้ว`;
+}
+function ppPxNotify(title, text, cid) {
+ try {
+  const c = cid ? findContact(cid) : null;
+  islandNotify(c || { id: '', name: title, avatar: '' }, text);
+ } catch {}
+}
+
+// ══════════════════════════════════════════════════════════
+// ★ แบตเตอรี่
+// ══════════════════════════════════════════════════════════
+const PP_PX_SPEED = { slow: 0.5, normal: 1, fast: 2 };
+function ppPxBatt() { return ppPx().batt; }
+function ppPxBattLevel() {
+ if (getCfg().pxBattSim === false) return 100;
+ return Math.max(0, Math.min(100, Math.round(ppPxBatt().level)));
+}
+function ppPxDead() { return getCfg().pxBattSim !== false && getCfg().pxBattCanDie !== false && !!ppPxBatt().dead; }
+/** เดินแบตตามเวลาจริงที่ผ่านไป — เรียกซ้ำได้ ไม่นับซ้ำ */
+function ppPxBattTick() {
+ const cfg = getCfg();
+ const b = ppPxBatt();
+ const now = Date.now();
+ const dtMin = Math.min(360, Math.max(0, (now - (b.t || now)) / 60000)); // ห่างนานเกิน 6 ชม. นับแค่ 6 ชม.
+ b.t = now;
+ if (cfg.pxBattSim === false || !dtMin) return;
+ const before = b.level;
+ const sp = PP_PX_SPEED[cfg.pxBattSpeed] || 1;
+ const open = !!document.getElementById('pp-dialog')?.open;
+ if (b.charging) b.level = Math.min(100, b.level + dtMin * 1.4);
+ else {
+  const call = typeof ppCall !== 'undefined' && ppCall && ppCall.connected;
+  const perMin = (call ? 0.45 : open ? 0.2 : 0.022) * sp * (ppGx().lowpower ? 0.6 : 1);
+  b.level = Math.max(0, b.level - dtMin * perMin);
+ }
+ const lv = Math.round(b.level);
+ if (b.charging) { b.warned = {}; if (b.dead && lv >= 3) ppPxRevive(); if (lv >= 100 && Math.round(before) < 100) ppToast('ชาร์จเต็มแล้ว 100%'); }
+ else {
+  [20, 10, 5].forEach(w => {
+   if (lv <= w && !b.warned[w]) { b.warned[w] = 1; ppToast(`แบตเหลือ ${lv}% · เสียบชาร์จได้ที่ศูนย์ควบคุม`); ppPxNotify('แบตเตอรี่', `แบตเหลือ ${lv}%`); }
+  });
+  if (lv <= 0 && cfg.pxBattCanDie !== false && !b.dead) ppPxDie();
+ }
+ ppPxApplyStatus();
+}
+function ppPxDie() {
+ const b = ppPxBatt();
+ b.dead = true; b.level = 0;
+ saveCfg();
+ ppLog('phone', `มือถือของ ${getUserDisplayName()} แบตหมด เครื่องดับ`);
+ ppPxApplyStatus();
+}
+function ppPxRevive() {
+ const b = ppPxBatt();
+ if (!b.dead) return;
+ b.dead = false;
+ saveCfg();
+ ppToast('เปิดเครื่องแล้ว');
+ ppLog('phone', `มือถือของ ${getUserDisplayName()} ชาร์จจนเปิดเครื่องได้แล้ว`);
+ ppPxOnline();
+}
+function ppPxSetCharging(on) {
+ ppPxBattTick();
+ const b = ppPxBatt();
+ b.charging = !!on;
+ b.t = Date.now();
+ saveCfg();
+ ppToast(on ? 'เสียบสายชาร์จแล้ว' : 'ถอดสายชาร์จแล้ว');
+ ppPxApplyStatus();
+}
+
+// ══════════════════════════════════════════════════════════
+// ★ สัญญาณ / โหมดบิน / แบตหมด = ออฟไลน์จริง
+// ══════════════════════════════════════════════════════════
+function ppPxOfflineReason() {
+ if (ppPxDead()) return 'แบตหมด';
+ const c = ppCtrl();
+ if (c.air) return 'โหมดเครื่องบิน';
+ if (ppPx().noSignal) return 'ไม่มีสัญญาณ';
+ return '';
+}
+function ppPxOffline() { return !!ppPxOfflineReason(); }
+let ppPxWasOffline = null;
+let ppPxFlushing = false;
+/** เพิ่งกลับมาออนไลน์ — ส่งของที่ค้าง */
+function ppPxOnline() {
+ if (ppPxOffline()) return;
+ const cfg = getCfg();
+ let sent = 0;
+ try {
+  Object.keys(cfg.threads || {}).forEach(k => (cfg.threads[k] || []).forEach(m => { if (m && m.queued) { delete m.queued; sent++; } }));
+ } catch {}
+ const p = ppPx();
+ const q = p.queue.splice(0);
+ let got = 0;
+ if (q.length) {
+  ppPxFlushing = true;
+  try {
+   q.forEach(item => {
+    const evs = (item.events || []).map(ev => {
+     const t = String(ev && (ev.type || ev.kind) || '').toLowerCase();
+     // สายที่โทรมาระหว่างออฟไลน์ = สายที่ไม่ได้รับ
+     if (t === 'call' || t === 'incoming_call' || t === 'ringing') return Object.assign({}, ev, { type: 'missed_call', live: false });
+     return ev;
+    });
+    const r = ppApplySyncBatch({ events: evs }, item.speaker || null);
+    got += (r && r.applied) || 0;
+   });
+  } finally { ppPxFlushing = false; }
+ }
+ saveCfg();
+ if (sent || got) {
+  ppToast(`กลับมาออนไลน์ · ${sent ? `ส่งข้อความที่ค้าง ${sent} ` : ''}${got ? `ได้รับ ${got} รายการที่ค้างอยู่` : ''}`.trim());
+  if (got) ppPxNotify('Pocket Phone', `มี ${got} รายการเข้ามาระหว่างที่ติดต่อไม่ได้`);
+ }
+ try { ppRefreshAllViews(); } catch {}
+}
+/** เก็บ frame ที่เข้ามาตอนออฟไลน์ไว้ก่อน — คืน true ถ้าเก็บแล้ว */
+function ppPxQueueBatch(payload, speakerId) {
+ if (ppPxFlushing || getCfg().pxOfflineQueue === false || !ppPxOffline()) return false;
+ const list = Array.isArray(payload && payload.events) ? payload.events : Array.isArray(payload) ? payload : (payload && payload.type ? [payload] : []);
+ // phone_state ต้องมีผลทันที (เช่นเรื่องบอกว่าเสียบชาร์จแล้ว / มีสัญญาณแล้ว)
+ const now = [], later = [];
+ list.forEach(ev => { const t = String(ev && (ev.type || ev.kind) || '').toLowerCase(); (/^(phone_state|battery|device)$/.test(t) ? now : later).push(ev); });
+ if (now.length) { ppPxFlushing = true; try { ppApplySyncBatch({ events: now }, speakerId); } finally { ppPxFlushing = false; } }
+ if (!ppPxOffline()) return false; // phone_state เพิ่งทำให้กลับมาออนไลน์
+ if (!later.length) return true;
+ const p = ppPx();
+ p.queue.push({ ts: Date.now(), speaker: speakerId || null, events: later });
+ if (p.queue.length > 40) p.queue = p.queue.slice(-40);
+ saveCfg();
+ return true;
+}
+function ppPxQueuedCount() { return ppPx().queue.reduce((a, q) => a + (q.events || []).length, 0); }
+
+// ══════════════════════════════════════════════════════════
+// ★ โหมดโฟกัส
+// ══════════════════════════════════════════════════════════
+const PP_PX_FOCUS = {
+ dnd: { label: 'ห้ามรบกวน', icon: 'moon', en: 'Do Not Disturb' },
+ sleep: { label: 'นอนหลับ', icon: 'bed', en: 'Sleep' },
+ work: { label: 'ทำงาน', icon: 'briefcase', en: 'Work' },
+ drive: { label: 'ขับรถ', icon: 'car', en: 'Driving' },
+ personal: { label: 'ส่วนตัว', icon: 'person', en: 'Personal' },
+};
+function ppPxFocus() {
+ const f = ppPx().focus;
+ if (f && PP_PX_FOCUS[f]) return f;
+ return ppCtrl().dnd ? 'dnd' : '';
+}
+function ppPxSetFocus(f) {
+ const p = ppPx();
+ const prev = ppPxFocus();
+ p.focus = PP_PX_FOCUS[f] ? f : '';
+ ppCtrl().dnd = !!p.focus;
+ saveCfg();
+ try { ppApplyCtrl(); } catch {}
+ if (prev && !p.focus && p.silenced.length) {
+  ppToast(`ระหว่างโฟกัส มีแจ้งเตือนเงียบ ${p.silenced.length} รายการ`);
+  p.silenced = [];
+  saveCfg();
+ } else if (p.focus) ppToast(`เปิดโฟกัส: ${PP_PX_FOCUS[p.focus].label}`);
+ if (prev !== p.focus) ppLog('phone', p.focus ? `${getUserDisplayName()} เปิดโหมด${PP_PX_FOCUS[p.focus].label}ในมือถือ แจ้งเตือนถูกปิดเสียง` : `${getUserDisplayName()} ปิดโหมดโฟกัสแล้ว`);
+ ppPxApplyStatus();
+}
+/** โฟกัสเปิดอยู่และคนนี้ไม่ได้รับอนุญาต = ต้องเงียบ */
+function ppPxSilenced(c) {
+ const f = ppPxFocus();
+ if (!f) return false;
+ const id = c && c.id;
+ if (id && getCfg().pxFocusFav !== false && isPinned(id)) return false;
+ return true;
+}
+function ppPxNoteSilenced(c, text) {
+ const p = ppPx();
+ p.silenced.push({ cid: c && c.id || '', text: String(text || '').slice(0, 80), ts: Date.now() });
+ if (p.silenced.length > 60) p.silenced = p.silenced.slice(-60);
+}
+function ppPxOpenFocusSheet() {
+ const cur = ppPxFocus();
+ const items = Object.keys(PP_PX_FOCUS).map(k => ({
+  label: PP_PX_FOCUS[k].label + (cur === k ? ' · เปิดอยู่' : ''),
+  icon: ICON[PP_PX_FOCUS[k].icon] || ICON.moon,
+  onClick: () => ppPxSetFocus(cur === k ? '' : k),
+ }));
+ if (cur) items.push({ label: 'ปิดโหมดโฟกัส', icon: ICON.close, danger: true, onClick: () => ppPxSetFocus('') });
+ ppSheet('โหมดโฟกัส', items);
+}
+
+// ══════════════════════════════════════════════════════════
+// ★ สายที่เข้ามาไม่ได้ (ออฟไลน์ / โฟกัส) = สายที่ไม่ได้รับ
+// ══════════════════════════════════════════════════════════
+function ppPxMissCall(c, why) {
+ if (!c) return;
+ const cfg = getCfg();
+ if (!cfg.callLog) cfg.callLog = [];
+ cfg.callLog.push({ cid: c.id, name: dname(c), avatar: c.avatar, chatId: ppStChatId(), startISO: new Date().toISOString(), durText: 'ไม่ได้รับสาย', incoming: true, transcript: [], missed: true });
+ pushThreadMsg(c.id, { from: 'them', type: 'call', dir: 'in', missed: true, text: why || 'ไม่ได้รับสาย' });
+ bumpUnread(c.id, 1);
+ pushNotif(c.id, 'msg', `สายที่ไม่ได้รับจาก ${dname(c)}`);
+ ppLog('call', `${dname(c)} โทรมาแต่ ${getUserDisplayName()} ไม่ได้รับสาย (${why || 'ไม่ได้รับ'})`);
+ saveCfg();
+ try { if (ppViewing(c.id)) renderThread(); else renderContactList(); } catch {}
+}
+/** คืน true ถ้าสายนี้ถูกกันไว้ ไม่ให้ดังจริง */
+function ppPxBlockIncoming(c) {
+ if (!c) return false;
+ if (ppPxOffline()) { ppPxMissCall(c, `ติดต่อไม่ได้ · ${ppPxOfflineReason()}`); return true; }
+ if (ppPxSilenced(c)) {
+  ppPxMissCall(c, `เงียบไว้ · โหมด${PP_PX_FOCUS[ppPxFocus()].label}`);
+  ppPxNoteSilenced(c, 'สายเรียกเข้า');
+  return true;
+ }
+ return false;
+}
+
+// ══════════════════════════════════════════════════════════
+// ★ แถบสถานะ / หน้าจอแบตหมด
+// ══════════════════════════════════════════════════════════
+/** แบตแบบมีตัวเลขอยู่ในตัวถัง เหมือน iOS — ไม่กินที่แถบสถานะ */
+function ppPxBattPctSVG(lv, charging) {
+ const w = Math.max(2, Math.round(21 * lv / 100));
+ const col = charging ? '#30d158' : lv <= 10 ? '#ff453a' : lv <= 20 ? '#ffd60a' : 'currentColor';
+ return `<svg viewBox="0 0 27 13" class="pp-px-battsvg pct"><rect x=".5" y=".5" width="22" height="12" rx="3.6" fill="currentColor" fill-opacity=".32"/><rect x=".5" y=".5" width="${w}" height="12" rx="3.6" fill="${col}"/><rect x="23.8" y="4.3" width="1.9" height="4.4" rx=".95" fill="currentColor" fill-opacity=".4"/><text x="11.5" y="9.6" text-anchor="middle" font-size="8.6" font-weight="800" font-family="-apple-system,system-ui,sans-serif" fill="${lv > 45 || charging ? '#000' : '#fff'}" fill-opacity=".9">${lv}</text></svg>`;
+}
+function ppPxBattSVG(lv, charging) {
+ const w = Math.max(1, Math.round(16 * lv / 100));
+ const col = charging ? '#30d158' : lv <= 10 ? '#ff453a' : lv <= 20 ? '#ffd60a' : 'currentColor';
+ return `<svg viewBox="0 0 26 12" fill="none" class="pp-px-battsvg"><rect x=".5" y=".5" width="21" height="11" rx="3" stroke="currentColor" stroke-opacity=".4"/><rect x="2" y="2" width="${w}" height="8" rx="1.5" fill="${col}"/><rect x="23" y="4" width="1.8" height="4" rx=".9" fill="currentColor" fill-opacity=".4"/>${charging ? '<path d="M12.6 1.8 8.8 6.6h2.6l-1 3.6 3.8-4.8h-2.6l1-3.6z" fill="#fff" stroke="#000" stroke-width=".4"/>' : ''}</svg>`;
+}
+function ppPxApplyStatus() {
+ try {
+  const f = document.getElementById('pp-frame');
+  if (!f) return;
+  const b = ppPxBatt();
+  const lv = ppPxBattLevel();
+  const sim = getCfg().pxBattSim !== false;
+  const slot = document.getElementById('pp-sb-batt');
+  if (slot) {
+   const showPct = ppGx().battPct || (sim && lv <= 20);
+   slot.innerHTML = showPct ? ppPxBattPctSVG(lv, sim && b.charging) : ppPxBattSVG(lv, sim && b.charging);
+   slot.title = `แบต ${lv}%${b.charging ? ' · กำลังชาร์จ' : ''}`;
+  }
+  const fo = document.getElementById('pp-sb-focus');
+  const fk = ppPxFocus();
+  if (fo) fo.innerHTML = fk ? (ICON[PP_PX_FOCUS[fk].icon] || ICON.moon) : '';
+  f.classList.toggle('pp-nosignal', !!ppPx().noSignal && !ppCtrl().air);
+  f.classList.toggle('pp-charging', sim && !!b.charging);
+  f.classList.toggle('pp-battlow', sim && lv <= 20 && !b.charging);
+  // หน้าจอเครื่องดับ
+  let dead = document.getElementById('pp-px-dead');
+  if (ppPxDead()) {
+   if (!dead) {
+    dead = document.createElement('div');
+    dead.id = 'pp-px-dead';
+    f.appendChild(dead);
+   }
+   dead.innerHTML = `<div class="pp-px-dead-in">
+    <div class="pp-px-dead-batt">${ppPxBattSVG(Math.round(b.level), b.charging)}</div>
+    <div class="pp-px-dead-t">${b.charging ? `กำลังชาร์จ ${Math.round(b.level)}%` : 'แบตหมด'}</div>
+    <div class="pp-px-dead-s">${b.charging ? 'เครื่องจะเปิดเองเมื่อแบตถึง 3%' : 'เครื่องดับอยู่ ข้อความและสายที่เข้ามาจะค้างไว้จนกว่าจะเปิดเครื่อง'}</div>
+    ${b.charging ? '' : `<button class="pp-btn primary" data-px="charge-on">${ICON.bolt}เสียบสายชาร์จ</button>`}
+    <button class="pp-btn" data-px="close-phone">วางมือถือลง</button>
+   </div>`;
+  } else if (dead) dead.remove();
+  // ออฟไลน์แล้วกลับมา
+  const off = ppPxOffline();
+  if (ppPxWasOffline === true && !off) setTimeout(ppPxOnline, 50);
+  ppPxWasOffline = off;
+ } catch (e) { console.warn('[pocket-phone] px status', e); }
+}
+
+// ══════════════════════════════════════════════════════════
+// ★ ส่องมือถือ — มีคนขอดู/แย่งมือถือในโรล ส่งของที่อยู่ในเครื่องจริงให้บอท
+// ══════════════════════════════════════════════════════════
+const PP_PX_INSPECT_RX = [
+ /(ขอดู|ค้น|เช็ก|เช็ค|ส่อง|แย่ง|ยึด|เปิดดู|ไล่ดู|แอบดู|หยิบ|คว้า|รื้อ|ปลดล็อก)[^\n]{0,14}(มือถือ|โทรศัพท์|ไอโฟน|หน้าจอมือถือ|แชทใน)/,
+ /(มือถือ|โทรศัพท์)[^\n]{0,10}(ขอดู|ให้ดู|มาดู|เอามา|ส่งมา|หน่อยสิ|หน่อย)/,
+ /\b(check|go through|look through|look at|snoop through|snoop on|grab|take|unlock|scroll through|search)\s+(your|her|his|my|their|the)\s+phone\b/i,
+ /\b(give|hand)\s+me\s+(your|the)\s+phone\b/i,
+ /\bphone\s*(password|passcode|pin)\b/i,
+];
+function ppPxInspectTriggered(chat) {
+ try {
+  const arr = Array.isArray(chat) ? chat.filter(m => m && !m.is_system) : [];
+  const hay = arr.slice(-2).map(m => String(m.mes || m.content || '')).join('\n');
+  return PP_PX_INSPECT_RX.some(rx => rx.test(hay));
+ } catch { return false; }
+}
+function ppPxIsHidden(tid) { return ppPx().hidden.includes(tid); }
+function ppPxToggleHidden(tid) {
+ const p = ppPx();
+ if (p.hidden.includes(tid)) p.hidden = p.hidden.filter(x => x !== tid);
+ else p.hidden.push(tid);
+ saveCfg();
+ ppToast(p.hidden.includes(tid) ? 'ซ่อนแชทนี้แล้ว · ใครส่องมือถือจะไม่เห็น' : 'เลิกซ่อนแชทนี้แล้ว');
+}
+/** สรุปสิ่งที่อยู่ในเครื่องจริงตอนนี้ */
+function ppPxPhoneSnapshot() {
+ const cfg = getCfg();
+ const un = getUserDisplayName();
+ const p = ppPx();
+ const out = [];
+ const tids = getContacts().filter(c => !isBlocked(c.id)).map(c => c.id).concat(getGroups().map(g => g.id))
+  .filter(id => !p.hidden.includes(id) && getThread(id).length)
+  .sort((a, b) => lastTs(b) - lastTs(a)).slice(0, 6);
+ tids.forEach(id => {
+  const th = getThread(id).filter(m => m.from !== 'sys' && !m.unsent).slice(-3);
+  const lines = th.map(m => `${m.from === 'me' ? un : (m.senderName || threadName(id))}: ${String(msgPreview(m)).replace(/\s+/g, ' ').slice(0, 90)}`);
+  out.push(`- Chat with ${threadName(id)}${unreadOf(id) ? ` (${unreadOf(id)} unread)` : ''}: ${lines.join(' | ')}`);
+ });
+ const calls = (cfg.callLog || []).slice(-4).reverse().map(l => `${l.name}${l.missed ? ' (missed)' : l.incoming ? ' (incoming)' : ' (outgoing)'} ${fmtListTime(Date.parse(l.startISO) || 0)}`);
+ if (calls.length) out.push(`- Recent calls: ${calls.join(', ')}`);
+ const mails = p.mail.filter(m => m.dir !== 'out').slice(-3).reverse().map(m => `"${m.subject}" from ${m.from}`);
+ if (mails.length) out.push(`- Latest emails: ${mails.join(', ')}`);
+ const cal = ppPxUpcoming(7).slice(0, 3).map(e => `${e.title} (${e.date}${e.time ? ' ' + e.time : ''})`);
+ if (cal.length) out.push(`- Calendar: ${cal.join(', ')}`);
+ const photos = ppPxAllPhotos().length;
+ if (photos) out.push(`- Photos app: ${photos} photos`);
+ out.push(`- Wallet balance: ${fmtMoney(walletBalanceGet())}`);
+ if (p.hidden.length) out.push(`- There is a locked hidden folder that needs a passcode — its contents cannot be seen.`);
+ return out;
+}
+
+// ══════════════════════════════════════════════════════════
+// ★ บอกบทหลักเรื่องสถานะเครื่อง (เฉพาะตอนที่ไม่ปกติ ประหยัดโทเคน)
+// ══════════════════════════════════════════════════════════
+function ppPxStateMsg(chat) {
+ try {
+  const cfg = getCfg();
+  const un = getUserDisplayName();
+  const rows = [];
+  if (cfg.pxRpState !== false) {
+   const lv = ppPxBattLevel();
+   const b = ppPxBatt();
+   if (ppPxDead()) rows.push(`${un}'s phone is DEAD (0% battery). Nothing reaches it: calls fail and messages stay undelivered until it is charged. ${un} cannot check the phone.`);
+   else if (cfg.pxBattSim !== false && lv <= 20) rows.push(`${un}'s phone battery is at ${lv}%${b.charging ? ' and charging' : ''}.`);
+   const off = ppPxOfflineReason();
+   if (off && !ppPxDead()) rows.push(`${un}'s phone is offline (${off === 'โหมดเครื่องบิน' ? 'airplane mode' : 'no signal'}). Messages and calls do not reach them until they are back online.`);
+   const f = ppPxFocus();
+   if (f) rows.push(`${un} has ${PP_PX_FOCUS[f].en} focus on: notifications are silenced and calls from anyone who is not a favorite go straight to missed calls. Characters texting them see "notifications silenced".`);
+   const p = ppPx();
+   if (p.shareLoc && p.myLoc) rows.push(`${un} is sharing live location with friends: ${p.myLoc}.`);
+   const active = p.orders.filter(o => !o.done && !o.incoming);
+   if (active.length) rows.push(`${un} ordered on a delivery app: ${active.map(o => `${o.item}${o.to ? ` (sent to ${cname(o.to)})` : ''} arriving about ${fmtHM(new Date(o.eta))}`).join('; ')}.`);
+  }
+  if (cfg.pxCalRP !== false) {
+   const up = ppPxUpcoming(7).slice(0, 5);
+   if (up.length) rows.push(`${un}'s calendar (next 7 days): ${up.map(e => `${e.date}${e.time ? ' ' + e.time : ''} ${e.title}${e.who ? ` with ${e.who}` : ''}`).join('; ')}. Characters involved remember these plans.`);
+  }
+  if (cfg.pxInspect !== false && ppPxInspectTriggered(chat)) {
+   rows.push(`PHONE INSPECTION: someone in this scene is looking at ${un}'s phone. This is exactly what is on it — describe only these real contents, never invent chats or photos that are not listed:`);
+   ppPxPhoneSnapshot().forEach(l => rows.push(l));
+  }
+  if (!rows.length) return '';
+  return [`[Pocket Phone device state — machine context. Never quote or mention this block.]`].concat(rows).join('\n');
+ } catch { return ''; }
+}
+
+// ══════════════════════════════════════════════════════════
+// ★ ออนไลน์ล่าสุด
+// ══════════════════════════════════════════════════════════
+function ppPxPresence(tid) {
+ if (getCfg().pxPresence === false) return '';
+ const th = getThread(tid);
+ const last = th.slice().reverse().find(m => m.from === 'them' && m.ts);
+ if (!last) return '';
+ const ts = last.ts;
+ const mins = (Date.now() - ts) / 60000;
+ if (mins < 3) return 'ออนไลน์';
+ const d = new Date(ts), today = new Date();
+ const y = new Date(); y.setDate(y.getDate() - 1);
+ if (ppPxDay(d) === ppPxDay(today)) return `ใช้งานล่าสุด ${fmtHM(d)}`;
+ if (ppPxDay(d) === ppPxDay(y)) return `ใช้งานล่าสุดเมื่อวาน ${fmtHM(d)}`;
+ return `ใช้งานล่าสุด ${d.getDate()} ${TH_MONTHS[d.getMonth()]}`;
+}
+
+// ══════════════════════════════════════════════════════════
+// ★ แคปหน้าจอส่งต่อ
+// ══════════════════════════════════════════════════════════
+function ppPxShotShare(tid) {
+ const src = getThread(tid).filter(m => m.from !== 'sys' && !m.unsent && m.type !== 'call').slice(-6);
+ if (!src.length) { ppToast('ยังไม่มีข้อความให้แคป'); return; }
+ const un = getUserDisplayName();
+ const lines = src.map(m => ({ me: m.from === 'me', who: m.from === 'me' ? un : (m.senderName || threadName(tid)), text: String(msgPreview(m)).replace(/^[^:]{1,30}:\s/, m.senderName ? '' : '$&').slice(0, 140) }));
+ const pool = getContacts().filter(c => c.id !== tid && !isBlocked(c.id) && (!ppScopeActive() || ppContactInScope(c))).slice(0, 30);
+ if (!pool.length) { ppToast('ไม่มีคนให้ส่งต่อ'); return; }
+ ppSheet(`แคปแชทกับ ${threadName(tid)} ส่งให้ใคร`, pool.map(c => ({
+  label: dname(c), icon: ICON.shot,
+  onClick: () => {
+   const body = lines.map(l => `${l.who}: ${l.text}`).join('\n');
+   pushThreadMsg(c.id, { from: 'me', type: 'shot', shotName: threadName(tid), lines, text: `[แคปหน้าจอแชทกับ ${threadName(tid)}]\n${body}` });
+   ppLog('chat', `แคปหน้าจอแชทกับ ${threadName(tid)} ส่งให้ ${dname(c)}`, lines.map(l => `${l.who}: ${l.text}`));
+   renderContactList();
+   ppToast(`ส่งภาพแคปให้ ${dname(c)} แล้ว`);
+  },
+ })));
+}
+
+// ══════════════════════════════════════════════════════════
+// ★ ข้อความชนิดใหม่ในห้องแชท (shot / snap / order) — คืน {inner, extra} หรือ null
+// ทุกชนิดมี m.text เป็นคำอธิบายอ่านออก ตัวสรุป/prompt เดิมจึงใช้ได้ทันที
+// ══════════════════════════════════════════════════════════
+function ppPxGrad(seed) {
+ const h = ppPxHash(seed) % 360;
+ return `linear-gradient(150deg,hsl(${h} 70% 62%),hsl(${(h + 48) % 360} 65% 42%))`;
+}
+function ppPxMsgInner(m, idx) {
+ if (!m || !m.type) return null;
+ if (m.type === 'shot') {
+  const rows = (m.lines || []).slice(0, 8).map(l => `<div class="pp-px-shot-row ${l.me ? 'me' : ''}"><span>${esc(l.text)}</span></div>`).join('');
+  return { extra: ' pp-bubble-shared', inner: `<div class="pp-px-shot"><div class="pp-px-shot-hd">${ICON.shot}<span>แคปหน้าจอ · แชทกับ ${esc(m.shotName || '')}</span></div><div class="pp-px-shot-body">${rows}</div></div>` };
+ }
+ if (m.type === 'snap') {
+  return { extra: ' pp-bubble-img', inner: `<div class="pp-px-snap" style="background:${ppPxGrad(m.caption || m.mid)}"><span class="pp-px-snap-ic">${ICON.camera}</span><span class="pp-px-snap-cap">${esc(m.caption || 'รูปภาพ')}</span></div>` };
+ }
+ if (m.type === 'order') {
+  return { inner: `<div class="pp-loc"><span class="pp-loc-map" style="background:linear-gradient(150deg,#30d158,#0a84ff)">${ICON.bag}</span><span><span class="pp-loc-name">${esc(m.item || 'ของที่สั่ง')}</span><span class="pp-loc-note">${esc(m.note || 'ส่งผ่านแอพส่งของ')}</span></span></div>` };
+ }
+ return null;
+}
+
+// ══════════════════════════════════════════════════════════
+// ★ ปฏิทิน
+// ══════════════════════════════════════════════════════════
+/** แปลงวันจากโมเดล/ผู้ใช้ → YYYY-MM-DD หรือ '' */
+function ppPxParseDate(raw) {
+ const s = String(raw || '').trim().toLowerCase();
+ const base = new Date(); base.setHours(12, 0, 0, 0);
+ const add = n => { const d = new Date(base); d.setDate(d.getDate() + n); return ppPxDay(d); };
+ if (!s || /^(today|วันนี้|คืนนี้|tonight)$/.test(s)) return add(0);
+ if (/^(tomorrow|พรุ่งนี้)/.test(s)) return add(1);
+ if (/^(มะรืน|day after tomorrow)/.test(s)) return add(2);
+ let m = s.match(/^\+?(\d{1,3})\s*(d|day|days|วัน)$/) || s.match(/^(?:in|อีก)\s*(\d{1,3})\s*(?:days?|วัน)/);
+ if (m) return add(+m[1]);
+ m = s.match(/^(?:in|อีก)\s*(\d{1,2})\s*(?:weeks?|สัปดาห์|อาทิตย์)/);
+ if (m) return add(+m[1] * 7);
+ m = s.match(/^(\d{4})-(\d{1,2})-(\d{1,2})/);
+ if (m) return `${m[1]}-${m[2].padStart(2, '0')}-${m[3].padStart(2, '0')}`;
+ m = s.match(/^(\d{1,2})[\/.](\d{1,2})(?:[\/.](\d{2,4}))?$/);
+ if (m) {
+  let y = m[3] ? +m[3] : base.getFullYear();
+  if (y > 2400) y -= 543; else if (y < 100) y += 2000;
+  return `${y}-${String(+m[2]).padStart(2, '0')}-${String(+m[1]).padStart(2, '0')}`;
+ }
+ const wd = [['sunday', 'อาทิตย์'], ['monday', 'จันทร์'], ['tuesday', 'อังคาร'], ['wednesday', 'พุธ'], ['thursday', 'พฤหัส'], ['friday', 'ศุกร์'], ['saturday', 'เสาร์']];
+ for (let i = 0; i < 7; i++) {
+  if (wd[i].some(w => s.includes(w))) { const diff = (i - base.getDay() + 7) % 7 || 7; return add(diff); }
+ }
+ return '';
+}
+function ppPxParseTime(raw) {
+ const s = String(raw || '').trim().toLowerCase();
+ let m = s.match(/(\d{1,2})[:.](\d{2})/);
+ if (m && +m[1] < 24 && +m[2] < 60) return `${String(+m[1]).padStart(2, '0')}:${m[2]}`;
+ m = s.match(/^(\d{1,2})\s*(am|pm)$/);
+ if (m) { let h = +m[1] % 12; if (m[2] === 'pm') h += 12; return `${String(h).padStart(2, '0')}:00`; }
+ m = s.match(/^(\d{1,2})\s*(?:โมง|นาฬิกา|น\.?)$/);
+ if (m && +m[1] < 24) return `${String(+m[1]).padStart(2, '0')}:00`;
+ return '';
+}
+function ppPxAddEvent(ev) {
+ const p = ppPx();
+ const e = Object.assign({ id: 'ev' + newId(), title: '', date: ppPxDay(new Date()), time: '', who: '', note: '', src: 'user', notified: false, ts: Date.now() }, ev);
+ e.title = String(e.title || '').slice(0, 90);
+ if (!e.title) return null;
+ const dup = p.cal.find(x => x.date === e.date && x.title === e.title);
+ if (dup) return dup;
+ p.cal.push(e);
+ p.cal.sort((a, b) => (a.date + a.time).localeCompare(b.date + b.time));
+ if (p.cal.length > 300) p.cal = p.cal.slice(-300);
+ saveCfg();
+ return e;
+}
+function ppPxUpcoming(days) {
+ const today = ppPxDay(new Date());
+ const end = new Date(); end.setDate(end.getDate() + (days || 7));
+ const last = ppPxDay(end);
+ return ppPx().cal.filter(e => e.date >= today && e.date <= last);
+}
+let ppPxCalMonth = null, ppPxCalSel = null;
+function renderPxCal() {
+ const body = document.getElementById('pp-pxcal-body');
+ if (!body) return;
+ const p = ppPx();
+ const now = new Date();
+ if (!ppPxCalMonth) ppPxCalMonth = new Date(now.getFullYear(), now.getMonth(), 1);
+ if (!ppPxCalSel) ppPxCalSel = ppPxDay(now);
+ const y = ppPxCalMonth.getFullYear(), mo = ppPxCalMonth.getMonth();
+ const first = new Date(y, mo, 1).getDay();
+ const days = new Date(y, mo + 1, 0).getDate();
+ const today = ppPxDay(now);
+ const has = new Set(p.cal.map(e => e.date));
+ let cells = '';
+ ['อา', 'จ', 'อ', 'พ', 'พฤ', 'ศ', 'ส'].forEach(d => { cells += `<div class="pp-px-cal-wd">${d}</div>`; });
+ for (let i = 0; i < first; i++) cells += '<div></div>';
+ for (let d = 1; d <= days; d++) {
+  const key = `${y}-${String(mo + 1).padStart(2, '0')}-${String(d).padStart(2, '0')}`;
+  cells += `<button class="pp-px-cal-d${key === today ? ' today' : ''}${key === ppPxCalSel ? ' sel' : ''}" data-px="cal-day" data-d="${key}">${d}${has.has(key) ? '<i></i>' : ''}</button>`;
+ }
+ const list = p.cal.filter(e => e.date === ppPxCalSel);
+ const up = ppPxUpcoming(30).filter(e => e.date !== ppPxCalSel).slice(0, 8);
+ const row = e => `<div class="pp-px-ev" data-px="cal-ev" data-id="${esc(e.id)}">
+   <span class="pp-px-ev-bar" style="background:${e.src === 'story' ? '#ff9f0a' : 'var(--pp-accent)'}"></span>
+   <span class="pp-px-ev-main"><b>${esc(e.title)}</b><span>${esc([e.date !== ppPxCalSel ? e.date : '', e.time || 'ทั้งวัน', e.who ? 'กับ ' + e.who : '', e.src === 'story' ? 'จากในเรื่อง' : ''].filter(Boolean).join(' · '))}</span></span></div>`;
+ body.innerHTML = `
+  <div class="pp-px-cal-head">
+   <button class="pp-nav-action" data-px="cal-prev">${ICON.back}</button>
+   <b>${TH_MONTHS_FULL[mo]} ${y + 543}</b>
+   <button class="pp-nav-action" data-px="cal-next" style="transform:scaleX(-1)">${ICON.back}</button>
+  </div>
+  <div class="pp-px-cal-grid">${cells}</div>
+  <div class="pp-sec-label">${esc(ppPxCalSel === today ? 'วันนี้' : ppPxCalSel)}</div>
+  ${list.length ? `<div class="pp-card">${list.map(row).join('')}</div>` : '<div class="pp-hint">ไม่มีนัดวันนี้ · แตะ + เพื่อเพิ่ม</div>'}
+  ${up.length ? `<div class="pp-sec-label">กำลังจะมาถึง</div><div class="pp-card">${up.map(row).join('')}</div>` : ''}
+  <div class="pp-hint">นัดที่เกิดขึ้นในโรลหลักจะถูกลงปฏิทินให้เองเมื่อเปิดโมดูล "ชีวิตจริงในมือถือ" ในหน้าสะพานเชื่อม และตัวละครจะจำนัดใน 7 วันข้างหน้าได้</div>`;
+}
+function ppPxCalAddFlow() {
+ ppPrompt('ชื่อนัด / กิจกรรม', '', title => {
+  title = (title || '').trim();
+  if (!title) return;
+  ppPrompt('วันไหน', ppPxCalSel || ppPxDay(new Date()), dRaw => {
+   const date = ppPxParseDate(dRaw) || ppPxCalSel || ppPxDay(new Date());
+   ppPrompt('กี่โมง (เว้นว่าง = ทั้งวัน)', '', tRaw => {
+    const time = ppPxParseTime(tRaw);
+    ppPrompt('กับใคร (เว้นว่างได้)', '', who => {
+     const e = ppPxAddEvent({ title, date, time, who: (who || '').trim().slice(0, 40) });
+     if (e) {
+      ppLog('phone', `${getUserDisplayName()} ลงปฏิทิน "${e.title}" วันที่ ${e.date}${e.time ? ' เวลา ' + e.time : ''}${e.who ? ' กับ ' + e.who : ''}`);
+      ppPxCalSel = e.date;
+      renderPxCal();
+      ppToast('ลงปฏิทินแล้ว');
+     }
+    }, { rows: 1 });
+   }, { rows: 1, placeholder: '19:00' });
+  }, { rows: 1, hint: 'พิมพ์ได้ทั้ง 2026-10-01 · 1/10 · พรุ่งนี้ · อีก 3 วัน · วันศุกร์' });
+ }, { rows: 1 });
+}
+function ppPxCalTick() {
+ const p = ppPx();
+ const now = new Date();
+ const today = ppPxDay(now);
+ const hm = fmtHM(now).padStart(5, '0');
+ let changed = false;
+ p.cal.forEach(e => {
+  if (e.notified || e.date > today) return;
+  if (e.date < today) { e.notified = true; changed = true; return; }
+  const due = e.time ? e.time <= hm : now.getHours() >= 8;
+  if (!due) return;
+  e.notified = true; changed = true;
+  const c = e.who ? ppSyncFindContact(e.who, false) : null;
+  ppPxNotify('ปฏิทิน', `${e.time ? e.time + ' · ' : 'วันนี้ · '}${e.title}`, c && c.id);
+  pushNotif(c ? c.id : '', 'msg', `ปฏิทิน: ${e.title}`);
+ });
+ if (changed) saveCfg();
+}
+
+// ══════════════════════════════════════════════════════════
+// ★ อีเมล
+// ══════════════════════════════════════════════════════════
+let ppPxMailTab = 'in', ppPxMailOpen = null;
+function ppPxMailUnread() { return ppPx().mail.filter(m => m.dir !== 'out' && !m.read).length; }
+function ppPxAddMail(m) {
+ const p = ppPx();
+ const x = Object.assign({ id: 'ml' + newId(), from: '?', to: '', subject: '(ไม่มีหัวเรื่อง)', body: '', ts: Date.now(), read: false, star: false, dir: 'in' }, m);
+ x.subject = String(x.subject || '(ไม่มีหัวเรื่อง)').slice(0, 120);
+ x.body = String(x.body || '').slice(0, 4000);
+ p.mail.push(x);
+ if (p.mail.length > 200) p.mail = p.mail.slice(-200);
+ saveCfg();
+ return x;
+}
+function renderPxMail() {
+ const body = document.getElementById('pp-pxmail-body');
+ if (!body) return;
+ const p = ppPx();
+ const t = ppPxMailTab;
+ const list = p.mail.filter(m => t === 'out' ? m.dir === 'out' : t === 'star' ? m.star : m.dir !== 'out').slice().reverse();
+ const seg = `<div class="pp-seg">${[['in', 'กล่องจดหมาย'], ['star', 'ติดดาว'], ['out', 'ส่งแล้ว']].map(([k, l]) => `<button class="${t === k ? 'on' : ''}" data-px="mail-tab" data-t="${k}">${l}${k === 'in' && ppPxMailUnread() ? ` (${ppPxMailUnread()})` : ''}</button>`).join('')}</div>`;
+ body.innerHTML = seg + (list.length ? list.map(m => `<div class="pp-px-mail${m.read || m.dir === 'out' ? '' : ' unread'}" data-px="mail-open" data-id="${esc(m.id)}">
+   <span class="pp-px-mail-av" style="background:${ppPxGrad(m.dir === 'out' ? m.to : m.from)}">${esc(String(m.dir === 'out' ? m.to : m.from).trim()[0] || '?')}</span>
+   <span class="pp-px-mail-main">
+    <span class="pp-px-mail-top"><b>${esc(m.dir === 'out' ? 'ถึง ' + m.to : m.from)}</b><span>${esc(fmtListTime(m.ts))}</span></span>
+    <span class="pp-px-mail-subj">${m.star ? ICON.star : ''}${esc(m.subject)}</span>
+    <span class="pp-px-mail-prev">${esc(m.body.replace(/\s+/g, ' ').slice(0, 90))}</span>
+   </span></div>`).join('')
+  : `<div class="pp-empty">${ICON.mail}<br>ยังไม่มีอีเมล<br><span>จดหมายทางการในเรื่อง เช่นผลสมัครงาน บิล หรือจดหมายจากที่ทำงาน จะเข้ามาที่นี่</span></div>`);
+}
+function renderPxMailRead() {
+ const body = document.getElementById('pp-pxmailread-body');
+ if (!body) return;
+ const m = ppPx().mail.find(x => x.id === ppPxMailOpen);
+ if (!m) { ppNav('pxmail'); return; }
+ if (!m.read) { m.read = true; saveCfg(); }
+ body.innerHTML = `<div class="pp-px-mailread">
+  <h2>${esc(m.subject)}</h2>
+  <div class="pp-px-mail-top"><span class="pp-px-mail-av" style="background:${ppPxGrad(m.dir === 'out' ? m.to : m.from)}">${esc(String(m.dir === 'out' ? m.to : m.from).trim()[0] || '?')}</span>
+   <span><b>${esc(m.dir === 'out' ? getUserDisplayName() : m.from)}</b><span>ถึง ${esc(m.dir === 'out' ? m.to : (m.to || getUserDisplayName()))} · ${esc(new Date(m.ts).toLocaleString('th-TH'))}</span></span></div>
+  <div class="pp-px-mail-text">${esc(m.body).replace(/\n/g, '<br>')}</div>
+  <div class="pp-px-mail-acts">
+   ${m.dir !== 'out' ? `<button class="pp-btn primary" data-px="mail-reply">${ICON.reply}ตอบกลับ</button>` : ''}
+   <button class="pp-btn" data-px="mail-star">${m.star ? ICON.star : ICON.starOut}${m.star ? 'เลิกติดดาว' : 'ติดดาว'}</button>
+   <button class="pp-btn danger" data-px="mail-del">${ICON.trash}ลบ</button>
+  </div></div>`;
+}
+function ppPxMailCompose(to, subject) {
+ ppPrompt('ถึง', to || '', toV => {
+  toV = (toV || '').trim();
+  if (!toV) return;
+  ppPrompt('หัวเรื่อง', subject || '', sub => {
+   ppPrompt('ข้อความ', '', txt => {
+    txt = (txt || '').trim();
+    if (!txt) return;
+    const m = ppPxAddMail({ dir: 'out', from: getUserDisplayName(), to: toV, subject: (sub || '').trim() || '(ไม่มีหัวเรื่อง)', body: txt, read: true });
+    ppLog('chat', `${getUserDisplayName()} ส่งอีเมลถึง ${toV} เรื่อง "${m.subject}"`, [txt.slice(0, 300)]);
+    ppToast('ส่งอีเมลแล้ว');
+    ppPxMailTab = 'out';
+    if (ppCurrentScreen === 'pxmail') renderPxMail(); else ppNav('pxmail');
+   }, { rows: 6 });
+  }, { rows: 1 });
+ }, { rows: 1 });
+}
+
+// ══════════════════════════════════════════════════════════
+// ★ รูปภาพ
+// ══════════════════════════════════════════════════════════
+let ppPxPhotoTab = 'all';
+function ppPxAllPhotos() {
+ const out = [];
+ const ids = getContacts().map(c => c.id).concat(getGroups().map(g => g.id));
+ ids.forEach(tid => {
+  getThread(tid).forEach(m => {
+   if (!m || m.unsent) return;
+   if (m.type === 'image' && (m.mediaKey || m.url)) out.push({ tid, m, kind: 'img' });
+   else if (m.type === 'snap') out.push({ tid, m, kind: 'snap' });
+   else if (m.type === 'shot') out.push({ tid, m, kind: 'shot' });
+  });
+ });
+ return out.sort((a, b) => (b.m.ts || 0) - (a.m.ts || 0));
+}
+function renderPxPhotos() {
+ const body = document.getElementById('pp-pxphotos-body');
+ if (!body) return;
+ const all = ppPxAllPhotos();
+ const seg = `<div class="pp-seg">${[['all', 'ทั้งหมด'], ['people', 'รายคน']].map(([k, l]) => `<button class="${ppPxPhotoTab === k ? 'on' : ''}" data-px="ph-tab" data-t="${k}">${l}</button>`).join('')}</div>`;
+ if (!all.length) { body.innerHTML = seg + `<div class="pp-empty">${ICON.photos}<br>ยังไม่มีรูป<br><span>รูปที่ส่งหรือได้รับในแชท และรูปที่ตัวละครถ่ายส่งมา จะรวมอยู่ที่นี่</span></div>`; return; }
+ const cell = (x, i) => {
+  const who = x.m.from === 'me' ? getUserDisplayName() : (x.m.senderName || threadName(x.tid));
+  if (x.kind === 'img') return `<button class="pp-px-ph" data-px="ph-open" data-i="${i}" data-media="${esc(x.m.mediaKey || '')}" style="${x.m.url ? `background-image:url('${esc(x.m.url)}')` : ''}"><span class="pp-px-ph-who">${esc(who)}</span></button>`;
+  if (x.kind === 'shot') return `<button class="pp-px-ph shot" data-px="ph-open" data-i="${i}">${ICON.shot}<span>แคปแชท ${esc(x.m.shotName || '')}</span></button>`;
+  return `<button class="pp-px-ph snap" data-px="ph-open" data-i="${i}" style="background:${ppPxGrad(x.m.caption || x.m.mid)}"><span>${esc(String(x.m.caption || '').slice(0, 40))}</span></button>`;
+ };
+ let html = seg;
+ if (ppPxPhotoTab === 'people') {
+  const by = {};
+  all.forEach((x, i) => { (by[x.tid] = by[x.tid] || []).push({ x, i }); });
+  Object.keys(by).forEach(tid => {
+   html += `<div class="pp-sec-label">${esc(threadName(tid))} · ${by[tid].length} รูป</div><div class="pp-px-phgrid">${by[tid].slice(0, 12).map(o => cell(o.x, o.i)).join('')}</div>`;
+  });
+ } else {
+  html += `<div class="pp-px-phgrid">${all.slice(0, 120).map(cell).join('')}</div>`;
+ }
+ body.innerHTML = html;
+ body.querySelectorAll('.pp-px-ph[data-media]').forEach(el => {
+  const k = el.dataset.media;
+  if (k) loadMedia(k).then(img => { if (img) el.style.backgroundImage = `url(${img})`; }).catch(() => {});
+ });
+}
+async function ppPxPhotoOpen(i) {
+ const x = ppPxAllPhotos()[i];
+ if (!x) return;
+ const who = x.m.from === 'me' ? getUserDisplayName() : (x.m.senderName || threadName(x.tid));
+ let media = '';
+ if (x.kind === 'img') {
+  const src = x.m.url || (x.m.mediaKey ? await loadMedia(x.m.mediaKey) : '');
+  media = src ? `<img src="${esc(src)}" alt="">` : '';
+ } else if (x.kind === 'snap') media = `<div class="pp-px-snap big" style="background:${ppPxGrad(x.m.caption || x.m.mid)}"><span class="pp-px-snap-ic">${ICON.camera}</span><span class="pp-px-snap-cap">${esc(x.m.caption || '')}</span></div>`;
+ else media = ppPxMsgInner(x.m, 0).inner;
+ const ov = ppOverlay('center', `<div class="pp-px-viewer">${media}
+  <div class="pp-px-viewer-cap">${esc(x.m.caption || '')}</div>
+  <div class="pp-px-viewer-meta">${esc(who)} · ${esc(new Date(x.m.ts || Date.now()).toLocaleString('th-TH'))}</div>
+  <button class="pp-btn primary" data-px="ph-chat">${ICON.messages}เปิดในแชท</button></div>`);
+ ov.querySelector('[data-px="ph-chat"]')?.addEventListener('click', () => { ov.remove(); ppOpenThread(x.tid); });
+}
+
+// ══════════════════════════════════════════════════════════
+// ★ แผนที่ / ค้นหาเพื่อน
+// ══════════════════════════════════════════════════════════
+function ppPxPlaces() {
+ const out = {};
+ const add = (name, who, ts, note, cid) => {
+  const k = String(name || '').trim();
+  if (!k) return;
+  const cur = out[k];
+  if (!cur || (ts || 0) > cur.ts) out[k] = { name: k, who: who || '', ts: ts || 0, note: note || '', cid: cid || '' };
+ };
+ getContacts().forEach(c => getThread(c.id).forEach(m => {
+  if (m && m.type === 'location') add(m.place, m.from === 'me' ? getUserDisplayName() : dname(c), m.ts, m.note, m.from === 'me' ? '' : c.id);
+ }));
+ const p = ppPx();
+ p.places.forEach(x => add(x.name, x.who, x.ts, x.note, x.cid));
+ Object.keys(p.people).forEach(cid => { const x = p.people[cid]; add(x.place, cname(cid), x.ts, '', cid); });
+ if (p.myLoc) add(p.myLoc, getUserDisplayName(), Date.now(), 'ตำแหน่งของฉัน', 'me');
+ return Object.values(out).sort((a, b) => b.ts - a.ts).slice(0, 30);
+}
+function ppPxPeopleLocs() {
+ const res = {};
+ getContacts().forEach(c => getThread(c.id).forEach(m => {
+  if (m && m.type === 'location' && m.from !== 'me' && (!res[c.id] || m.ts > res[c.id].ts)) res[c.id] = { place: m.place, ts: m.ts };
+ }));
+ const p = ppPx();
+ Object.keys(p.people).forEach(cid => { if (!res[cid] || p.people[cid].ts > res[cid].ts) res[cid] = p.people[cid]; });
+ return Object.keys(res).filter(cid => findContact(cid) && (!ppScopeActive() || ppContactInScope(findContact(cid)))).map(cid => Object.assign({ cid }, res[cid])).sort((a, b) => b.ts - a.ts);
+}
+function renderPxMap() {
+ const body = document.getElementById('pp-pxmap-body');
+ if (!body) return;
+ const p = ppPx();
+ const places = ppPxPlaces();
+ const pins = places.map(pl => {
+  const h = ppPxHash(pl.name);
+  const x = 8 + (h % 84), y = 10 + ((h >>> 8) % 76);
+  const c = pl.cid && pl.cid !== 'me' ? findContact(pl.cid) : null;
+  const face = pl.cid === 'me' ? `<span class="pp-px-pin me">${esc(getUserDisplayName()[0] || '?')}</span>`
+   : c ? `<span class="pp-px-pin av">${contactAvatarHTML(c, 26)}</span>` : `<span class="pp-px-pin">${ICON.pin2}</span>`;
+  return `<button class="pp-px-mappin" style="left:${x}%;top:${y}%" data-px="map-pin" data-name="${esc(pl.name)}">${face}<span class="pp-px-mappin-lb">${esc(pl.name.slice(0, 18))}</span></button>`;
+ }).join('');
+ const seed = ppPxHash(getUserDisplayName());
+ const roads = Array.from({ length: 7 }, (_, i) => {
+  const a = (seed >>> (i * 3)) % 100, b = (seed >>> (i * 2 + 5)) % 100;
+  return i % 2 ? `<line x1="0" y1="${a}" x2="100" y2="${b}"/>` : `<line x1="${a}" y1="0" x2="${b}" y2="100"/>`;
+ }).join('');
+ const people = ppPxPeopleLocs();
+ body.innerHTML = `
+  <div class="pp-px-map">
+   <svg class="pp-px-map-roads" viewBox="0 0 100 100" preserveAspectRatio="none">${roads}<circle cx="${20 + seed % 60}" cy="${30 + (seed >>> 4) % 40}" r="9" class="park"/><path d="M0 ${60 + seed % 25} Q 40 ${50 + (seed >>> 3) % 30} 100 ${55 + (seed >>> 6) % 30}" class="river"/></svg>
+   ${pins || '<div class="pp-px-map-empty">ยังไม่มีสถานที่ · ส่งตำแหน่งในแชทหรือให้ตัวละครแชร์ตำแหน่งมา</div>'}
+  </div>
+  <div class="pp-sec-label">ฉัน</div>
+  <div class="pp-card">
+   <div class="pp-cell" data-px="map-me"><span class="pp-cell-lb">ตำแหน่งตอนนี้</span><span style="color:var(--pp-txt3)">${esc(p.myLoc || 'แตะเพื่อตั้ง')}</span></div>
+   <div class="pp-cell"><span class="pp-cell-lb">แชร์ตำแหน่งสดให้เพื่อน</span><label class="pp-switch"><input type="checkbox" id="pp-px-shareloc"${p.shareLoc ? ' checked' : ''}><span></span></label></div>
+  </div>
+  <div class="pp-hint">เปิดแชร์ไว้ ตัวละครในบทหลักจะรู้ว่าคุณอยู่ที่ไหน</div>
+  <div class="pp-sec-label">คนที่แชร์ตำแหน่งกับคุณ</div>
+  ${people.length ? `<div class="pp-card">${people.map(x => `<div class="pp-cell" data-px="map-person" data-cid="${esc(x.cid)}">
+    <span class="pp-cell-lb" style="gap:10px">${contactAvatarHTML(findContact(x.cid), 30)}<span><b>${esc(cname(x.cid))}</b><br><span style="font-size:12px;color:var(--pp-txt3)">${esc(x.place)}</span></span></span>
+    <span style="font-size:12px;color:var(--pp-txt3)">${esc(ppPxAgo(x.ts))}</span></div>`).join('')}</div>` : '<div class="pp-hint">ยังไม่มีใครแชร์ตำแหน่ง</div>'}`;
+}
+
+// ══════════════════════════════════════════════════════════
+// ★ ส่งของ (อาหาร ของใช้ ของขวัญ)
+// ══════════════════════════════════════════════════════════
+const PP_PX_SHOP = [
+ { cat: 'อาหาร', color: '#ff9f0a', ic: 'bag', items: [['ข้าวกะเพราไก่ไข่ดาว', 65], ['ส้มตำ ไก่ย่าง ข้าวเหนียว', 120], ['ก๋วยเตี๋ยวเรือ', 60], ['ซูชิเซ็ตใหญ่', 290], ['พิซซ่าถาดกลาง', 399], ['ชาบูชุดสองคน', 459], ['ข้าวมันไก่', 55], ['สเต๊กหมู', 159]] },
+ { cat: 'เครื่องดื่ม', color: '#bf5af2', ic: 'drop', items: [['ชานมไข่มุก', 55], ['ลาเต้เย็น', 75], ['น้ำส้มคั้น', 45], ['ชาเขียวมัทฉะ', 85], ['เบียร์ 6 กระป๋อง', 280]] },
+ { cat: 'ของหวาน', color: '#ff375f', ic: 'heart', items: [['เค้กวันเกิด', 450], ['บิงซู', 159], ['ช็อกโกแลตกล่อง', 180], ['มาการง 6 ชิ้น', 220]] },
+ { cat: 'ของขวัญ', color: '#ff2d92', ic: 'gift', items: [['ช่อกุหลาบแดง', 590], ['ตุ๊กตาหมี', 390], ['เทียนหอม', 250], ['การ์ดเขียนมือ', 49]] },
+ { cat: 'ของใช้', color: '#30d158', ic: 'bag', items: [['ยาแก้ปวด', 45], ['ผ้าอนามัย', 89], ['ที่ชาร์จแบตพกพา', 590], ['ร่มพับ', 159], ['ผ้าห่มนุ่ม', 490], ['ยาแก้หวัด', 120]] },
+];
+const PP_PX_FEE = 15;
+let ppPxShopTab = 'shop';
+function ppPxOrderStage(o) {
+ if (o.done) return { i: 3, label: o.incoming ? 'ได้รับแล้ว' : o.to ? 'ส่งถึงผู้รับแล้ว' : 'ส่งถึงแล้ว' };
+ const f = (Date.now() - o.placed) / Math.max(1, o.eta - o.placed);
+ if (f < 0.15) return { i: 0, label: 'ร้านรับออเดอร์แล้ว' };
+ if (f < 0.45) return { i: 1, label: 'กำลังเตรียมของ' };
+ return { i: 2, label: 'ไรเดอร์กำลังไปส่ง' };
+}
+function renderPxShop() {
+ const body = document.getElementById('pp-pxshop-body');
+ if (!body) return;
+ const p = ppPx();
+ const seg = `<div class="pp-seg">${[['shop', 'ร้านค้า'], ['orders', 'ออเดอร์']].map(([k, l]) => `<button class="${ppPxShopTab === k ? 'on' : ''}" data-px="shop-tab" data-t="${k}">${l}${k === 'orders' && p.orders.some(o => !o.done) ? ` (${p.orders.filter(o => !o.done).length})` : ''}</button>`).join('')}</div>`;
+ if (ppPxShopTab === 'orders') {
+  const list = p.orders.slice().reverse().slice(0, 40);
+  body.innerHTML = seg + (list.length ? list.map(o => {
+   const st = ppPxOrderStage(o);
+   const pct = o.done ? 100 : Math.max(4, Math.min(99, Math.round((Date.now() - o.placed) / Math.max(1, o.eta - o.placed) * 100)));
+   return `<div class="pp-card pp-px-order">
+    <div class="pp-px-order-top"><b>${esc(o.item)}</b><span>${o.incoming ? `จาก ${esc(o.fromName || '?')}` : esc(fmtMoney(o.price + o.fee))}</span></div>
+    <div class="pp-px-order-sub">${esc(st.label)}${o.done ? '' : ` · ถึงประมาณ ${esc(fmtHM(new Date(o.eta)))}`}${o.to ? ` · ส่งให้ ${esc(cname(o.to))}` : ''}</div>
+    <div class="pp-px-track"><i style="width:${pct}%"></i></div>
+    <div class="pp-px-steps">${['รับออเดอร์', 'เตรียมของ', 'กำลังไปส่ง', 'ถึงแล้ว'].map((s, i) => `<span class="${i <= st.i ? 'on' : ''}">${s}</span>`).join('')}</div>
+   </div>`;
+  }).join('') : `<div class="pp-empty">${ICON.bag}<br>ยังไม่มีออเดอร์</div>`);
+  return;
+ }
+ body.innerHTML = seg + `<div class="pp-hint">ยอดเงินในกระเป๋า <b>${esc(fmtMoney(walletBalanceGet()))}</b> · ค่าส่ง ${esc(fmtMoney(PP_PX_FEE))} · สั่งให้ตัวเองหรือส่งไปให้คนในคอนแทกต์ก็ได้ ของที่มาส่งจะเกิดขึ้นในบทหลักด้วย</div>` +
+  PP_PX_SHOP.map((g, gi) => `<div class="pp-sec-label">${esc(g.cat)}</div><div class="pp-px-shopgrid">${g.items.map((it, ii) => `
+   <button class="pp-px-item" data-px="shop-item" data-g="${gi}" data-i="${ii}">
+    <span class="pp-px-item-ic" style="background:linear-gradient(150deg,${g.color},${g.color}99)">${ICON[g.ic] || ICON.bag}</span>
+    <span class="pp-px-item-nm">${esc(it[0])}</span><span class="pp-px-item-pr">${esc(fmtMoney(it[1]))}</span></button>`).join('')}</div>`).join('');
+}
+function ppPxOrderFlow(gi, ii) {
+ const g = PP_PX_SHOP[gi]; const it = g && g.items[ii];
+ if (!it) return;
+ const place = (toId, fast) => {
+  if (ppPxOffline()) { ppToast(`สั่งไม่ได้ · ${ppPxOfflineReason()}`); return; }
+  const fee = PP_PX_FEE + (fast ? 30 : 0);
+  const total = it[1] + fee;
+  if (walletBalanceGet() < total) { ppToast(`เงินไม่พอ · ต้องใช้ ${fmtMoney(total)}`); return; }
+  adjustUserBalance(-total);
+  pushWalletHistory('out', total, toId || null, 'แอพส่งของ', it[0]);
+  const mins = (fast ? 6 : 14) + Math.floor(Math.random() * (fast ? 8 : 22));
+  const o = { id: 'od' + newId(), item: it[0], price: it[1], fee, to: toId || '', placed: Date.now(), eta: Date.now() + mins * 60000, done: false, stage: 0 };
+  ppPx().orders.push(o);
+  if (ppPx().orders.length > 80) ppPx().orders = ppPx().orders.slice(-80);
+  saveCfg();
+  if (toId) {
+   pushThreadMsg(toId, { from: 'me', type: 'order', item: it[0], note: `สั่งส่งไปให้ · ถึงประมาณ ${fmtHM(new Date(o.eta))}`, text: `[สั่ง ${it[0]} ส่งไปให้ ถึงประมาณ ${fmtHM(new Date(o.eta))}]` });
+   ppLog('wallet', `${getUserDisplayName()} สั่ง "${it[0]}" ผ่านแอพส่งของไปให้ ${cname(toId)} (${fmtMoney(total)}) จะถึงประมาณ ${fmtHM(new Date(o.eta))}`);
+  } else {
+   ppLog('wallet', `${getUserDisplayName()} สั่ง "${it[0]}" ผ่านแอพส่งของ (${fmtMoney(total)}) จะมาส่งประมาณ ${fmtHM(new Date(o.eta))}`);
+  }
+  ppToast(`สั่งแล้ว · ถึงประมาณ ${fmtHM(new Date(o.eta))}`);
+  ppPxNotify('ส่งของ', `ร้านรับออเดอร์ ${it[0]} แล้ว`);
+  ppPxShopTab = 'orders';
+  renderPxShop();
+  updateHomeWidgets();
+ };
+ const pool = getContacts().filter(c => !isBlocked(c.id) && (!ppScopeActive() || ppContactInScope(c))).slice(0, 20);
+ ppSheet(`${it[0]} · ${fmtMoney(it[1])}`, [
+  { label: 'สั่งให้ตัวเอง', icon: ICON.person, onClick: () => place('', false) },
+  { label: `สั่งแบบด่วน (+${fmtMoney(30)})`, icon: ICON.bolt, onClick: () => place('', true) },
+ ].concat(pool.map(c => ({ label: `ส่งไปให้ ${dname(c)}`, icon: ICON.gift, onClick: () => place(c.id, false) }))));
+}
+function ppPxOrderTick() {
+ const p = ppPx();
+ let changed = false;
+ p.orders.forEach(o => {
+  if (o.done) return;
+  const st = ppPxOrderStage(o);
+  if (st.i !== o.stage) {
+   o.stage = st.i; changed = true;
+   if (st.i === 2) ppPxNotify('ส่งของ', `ไรเดอร์กำลังไปส่ง ${o.item}`);
+  }
+  if (Date.now() >= o.eta) {
+   o.done = true; o.stage = 3; changed = true;
+   if (o.incoming) {
+    ppPxNotify('ส่งของ', `${o.item} จาก ${o.fromName || 'ใครบางคน'} มาส่งแล้ว`);
+    ppLog('wallet', `ของที่ ${o.fromName || 'ใครบางคน'} สั่งส่งมาให้ ${getUserDisplayName()} ("${o.item}") มาส่งถึงแล้ว`);
+   } else if (o.to) {
+    ppPxNotify('ส่งของ', `${o.item} ส่งถึง ${cname(o.to)} แล้ว`);
+    pushThreadMsg(o.to, { from: 'sys', type: 'sysline', text: `${o.item} ที่คุณสั่งส่งถึง ${cname(o.to)} แล้ว` });
+    ppLog('wallet', `"${o.item}" ที่ ${getUserDisplayName()} สั่งไปให้ ${cname(o.to)} ส่งถึงมือ ${cname(o.to)} แล้ว`);
+   } else {
+    ppPxNotify('ส่งของ', `${o.item} มาส่งแล้ว`);
+    ppLog('wallet', `ไรเดอร์เอา "${o.item}" ที่ ${getUserDisplayName()} สั่งมาส่งถึงหน้าบ้านแล้ว`);
+   }
+  }
+ });
+ if (changed) { saveCfg(); if (ppCurrentScreen === 'pxshop') renderPxShop(); }
+}
+
+// ══════════════════════════════════════════════════════════
+// ★ event ใหม่จากบทหลัก
+// ══════════════════════════════════════════════════════════
+Object.assign(PP_TYPE_ALIAS, {
+ email: ['email', 'mail', 'e_mail', 'new_email', 'inbox'],
+ calendar: ['calendar', 'appointment', 'reminder', 'schedule', 'date_plan', 'plan', 'calendar_event'],
+ photo: ['photo', 'selfie', 'picture', 'pic', 'send_photo', 'photo_message'],
+ place: ['place', 'live_location', 'location_update', 'whereabouts'],
+ phone_state: ['phone_state', 'battery', 'device', 'device_state', 'signal'],
+ delivery: ['delivery', 'food_delivery', 'parcel', 'package', 'send_delivery'],
+});
+PP_MOD_TYPES.life = ['email', 'calendar', 'photo', 'place', 'phone_state', 'delivery'];
+['email', 'photo', 'place', 'delivery'].forEach(t => { if (!PP_SENDER_TYPES.includes(t)) PP_SENDER_TYPES.push(t); });
+BRIDGE_MOD_META.push({ key: 'life', label: 'ชีวิตจริงในมือถือ', group: 'events', hint: 'อีเมล · ปฏิทินนัดหมาย · รูปถ่ายจากตัวละคร · ตำแหน่งสด · ส่งของมาให้ · แบต/สัญญาณจากในเรื่อง · ฝากข้อความเสียง' });
+function ppPxLifePrompt() {
+ const un = getUserDisplayName();
+ return [
+  `Real-life phone apps:`,
+  `  email — formal mail (job offer, bill, school, work). {"type":"email","from":"Sender","subject":"...","text":"body","to":"${un}"}`,
+  `  calendar — a date, appointment or plan is agreed in the story. {"type":"calendar","title":"what","date":"YYYY-MM-DD or tomorrow or friday","time":"19:00","with":"Name"}`,
+  `  photo — a character sends a photo; describe exactly what it shows. {"type":"photo","from":"Name","caption":"what the photo shows","to":"${un}"}`,
+  `  place — a character's shared live location changes. {"type":"place","from":"Name","place":"where they are now"}`,
+  `  delivery — someone orders something delivered to ${un}. {"type":"delivery","from":"Name","item":"what","eta":20}`,
+  `  phone_state — the story physically affects ${un}'s phone (dropped in water, plugged in, lost signal underground). {"type":"phone_state","battery":5,"charging":true,"signal":false}`,
+  `  missed_call can include a voicemail: {"type":"missed_call","from":"Name","voicemail":"exactly what they said"}`,
+ ].join('\n');
+}
+/** จัดการ event ชนิดใหม่ — คืน result หรือ null ถ้าไม่ใช่ของระบบนี้ */
+function ppPxApplyEvent(type, ev) {
+ const p = ppPx();
+ if (type === 'email') {
+  const gate = ppDmToUser(ev, String(ev.from || ''));
+  if (!gate.ok) return { ok: true, label: `อีเมลถึง ${gate.target || 'คนอื่น'} (ไม่เข้ามือถือ)`, bounced: true };
+  const text = Array.isArray(ev.text) ? ev.text.join('\n') : String(ev.text || ev.body || ev.message || '');
+  const subject = String(ev.subject || ev.title || '').trim() || text.slice(0, 40) || '(ไม่มีหัวเรื่อง)';
+  const m = ppPxAddMail({ from: String(ev.from || ev.sender || 'ไม่ทราบผู้ส่ง').slice(0, 60), to: getUserDisplayName(), subject, body: text });
+  ppPxNotify('อีเมล', `${m.from}: ${m.subject}`);
+  pushNotif('', 'msg', `อีเมลใหม่จาก ${m.from}`);
+  return { ok: true, label: `อีเมลจาก ${m.from}` };
+ }
+ if (type === 'calendar') {
+  const title = String(ev.title || ev.text || ev.what || ev.name || '').trim();
+  if (!title) return { ok: false, reason: 'นัดไม่มีชื่อ' };
+  const date = ppPxParseDate(ev.date || ev.day || ev.when || 'today');
+  if (!date) return { ok: false, reason: `อ่านวันที่ไม่ออก: ${String(ev.date || '').slice(0, 20)}` };
+  const who = String(ev.with || ev.who || ev.from || '').trim();
+  const e = ppPxAddEvent({ title, date, time: ppPxParseTime(ev.time || ev.when || ''), who: ppIsUserName(who) ? '' : who.slice(0, 40), src: 'story' });
+  if (!e) return { ok: false, reason: 'ลงปฏิทินไม่ได้' };
+  ppPxNotify('ปฏิทิน', `ลงนัดแล้ว: ${e.title} · ${e.date}${e.time ? ' ' + e.time : ''}`);
+  return { ok: true, label: `ลงปฏิทิน ${e.title}` };
+ }
+ if (type === 'photo') {
+  const c = ppSyncFindContact(ev.from || ev.sender || ev.name, true);
+  if (!c) return { ok: false, reason: 'ไม่รู้ว่าใครส่งรูป' };
+  const gate = ppDmToUser(ev, dname(c));
+  if (!gate.ok) return ppDmBounce(dname(c), gate.target, [String(ev.caption || ev.text || '')], 'ส่งรูป');
+  const cap = String(ev.caption || ev.text || ev.description || 'รูปภาพ').slice(0, 300);
+  pushThreadMsg(c.id, { from: 'them', type: 'snap', caption: cap, text: `[รูป] ${cap}` });
+  bumpUnread(c.id, 1);
+  pushNotif(c.id, 'msg', `${dname(c)} ส่งรูป`);
+  islandNotify(c, 'ส่งรูปภาพ');
+  return { ok: true, label: `รูปจาก ${dname(c)}` };
+ }
+ if (type === 'place') {
+  const c = ppSyncFindContact(ev.from || ev.name, true);
+  const place = String(ev.place || ev.text || ev.location || '').trim().slice(0, 80);
+  if (!c || !place) return { ok: false, reason: 'ไม่มีคนหรือสถานที่' };
+  p.people[c.id] = { place, ts: Date.now() };
+  p.places.push({ name: place, who: dname(c), ts: Date.now(), cid: c.id });
+  if (p.places.length > 80) p.places = p.places.slice(-80);
+  saveCfg();
+  return { ok: true, label: `${dname(c)} อยู่ที่ ${place}` };
+ }
+ if (type === 'phone_state') {
+  const b = ppPxBatt();
+  const bits = [];
+  if (ev.battery != null && !isNaN(+ev.battery)) { b.level = Math.max(0, Math.min(100, +ev.battery)); b.t = Date.now(); if (b.level > 0 && b.dead && b.level >= 3) b.dead = false; bits.push(`แบต ${Math.round(b.level)}%`); if (b.level <= 0 && getCfg().pxBattCanDie !== false) ppPxDie(); }
+  if (ev.charging != null) { b.charging = ev.charging === true || /true|yes|on|1/i.test(String(ev.charging)); bits.push(b.charging ? 'กำลังชาร์จ' : 'ถอดสายชาร์จ'); }
+  if (ev.signal != null) { p.noSignal = !(ev.signal === true || /true|yes|on|1/i.test(String(ev.signal))); bits.push(p.noSignal ? 'ไม่มีสัญญาณ' : 'มีสัญญาณ'); }
+  if (ev.dead === true) { ppPxDie(); bits.push('เครื่องดับ'); }
+  if (!bits.length) return { ok: false, noop: true };
+  saveCfg();
+  ppPxApplyStatus();
+  return { ok: true, label: `มือถือ: ${bits.join(' · ')}` };
+ }
+ if (type === 'delivery') {
+  const c = ppSyncFindContact(ev.from || ev.sender, true);
+  const item = String(ev.item || ev.text || ev.what || '').trim().slice(0, 80);
+  if (!item) return { ok: false, reason: 'ไม่ได้บอกว่าส่งอะไร' };
+  const mins = Math.max(1, Math.min(180, parseInt(ev.eta, 10) || 20));
+  p.orders.push({ id: 'od' + newId(), item, price: 0, fee: 0, to: '', incoming: true, fromName: c ? dname(c) : String(ev.from || 'ใครบางคน'), placed: Date.now(), eta: Date.now() + mins * 60000, done: false, stage: 0 });
+  saveCfg();
+  ppPxNotify('ส่งของ', `${c ? dname(c) : 'ใครบางคน'} สั่ง ${item} มาให้คุณ`);
+  return { ok: true, label: `${c ? dname(c) : '?'} สั่ง ${item} มาให้` };
+ }
+ return null;
+}
+/** หลัง event เดิมทำงานเสร็จ — เติมของที่ระบบเดิมไม่มี (ฝากข้อความเสียง) */
+function ppPxAfterEvent(type, ev, r) {
+ try {
+  if (!r || !r.ok || r.bounced) return;
+  if ((type === 'missed_call' || type === 'call' || type === 'call_log') && (ev.voicemail || ev.voice_mail)) {
+   const c = ppSyncFindContact(ev.from || ev.contact || ev.name, false);
+   if (!c) return;
+   const vm = (Array.isArray(ev.voicemail) ? ev.voicemail.join(' ') : String(ev.voicemail || ev.voice_mail)).trim().slice(0, 500);
+   if (!vm) return;
+   pushThreadMsg(c.id, { from: 'them', type: 'voice', voicemail: true, text: vm, dur: Math.min(60, Math.max(3, Math.round(vm.length / 8))) });
+   bumpUnread(c.id, 1);
+   pushNotif(c.id, 'msg', `${dname(c)} ฝากข้อความเสียง`);
+  }
+  if (type === 'location') {
+   const c = ppSyncFindContact(ev.from || ev.contact || ev.name, false);
+   const place = String(ev.place || ev.text || '').trim();
+   if (c && place) { ppPx().people[c.id] = { place: place.slice(0, 80), ts: Date.now() }; saveCfg(); }
+  }
+ } catch (e) { console.warn('[pocket-phone] px after event', e); }
+}
+
+// ══════════════════════════════════════════════════════════
+// ★ วิดเจ็ตวันนี้ · ป้ายแอพ · ศูนย์ควบคุม · หน้าล็อก
+// ══════════════════════════════════════════════════════════
+function ppPxHomeUpdate(setBadge) {
+ try {
+  if (setBadge) {
+   setBadge('pxmail', ppPxMailUnread());
+   setBadge('pxshop', ppPx().orders.filter(o => !o.done).length, true);
+   setBadge('pxcal', ppPx().cal.filter(e => e.date === ppPxDay(new Date())).length, true);
+  }
+  const home = document.getElementById('pp-home');
+  if (!home) return;
+  let w = document.getElementById('pp-px-today');
+  if (getCfg().pxTodayWidget === false) { if (w) w.remove(); return; }
+  if (!w) {
+   w = document.createElement('div');
+   w.id = 'pp-px-today';
+   const ref = home.querySelector('.pp-home-widgets');
+   if (ref) ref.after(w); else return;
+  }
+  const p = ppPx();
+  const ev = ppPxUpcoming(2)[0];
+  const od = p.orders.find(o => !o.done);
+  const lv = ppPxBattLevel();
+  const bits = [];
+  if (od) {
+   const pct = Math.max(4, Math.min(99, Math.round((Date.now() - od.placed) / Math.max(1, od.eta - od.placed) * 100)));
+   bits.push(`<div class="pp-px-tw-row" data-nav="pxshop">${ICON.bag}<span><b>${esc(od.item)}</b> · ${esc(ppPxOrderStage(od).label)}</span><div class="pp-px-track sm"><i style="width:${pct}%"></i></div></div>`);
+  }
+  if (ev) bits.push(`<div class="pp-px-tw-row" data-nav="pxcal">${ICON.calendar}<span><b>${esc(ev.title)}</b> · ${esc(ev.date === ppPxDay(new Date()) ? 'วันนี้' : 'พรุ่งนี้')}${ev.time ? ' ' + esc(ev.time) : ''}</span></div>`);
+  const um = ppPxMailUnread();
+  if (um) bits.push(`<div class="pp-px-tw-row" data-nav="pxmail">${ICON.mail}<span>อีเมลใหม่ ${um} ฉบับ</span></div>`);
+  if (getCfg().pxBattSim !== false && (lv <= 30 || ppPxBatt().charging)) bits.push(`<div class="pp-px-tw-row">${ICON.bolt}<span>แบต ${lv}%${ppPxBatt().charging ? ' · กำลังชาร์จ' : ''}</span></div>`);
+  const f = ppPxFocus();
+  if (f) bits.push(`<div class="pp-px-tw-row">${ICON[PP_PX_FOCUS[f].icon] || ICON.moon}<span>โหมด${esc(PP_PX_FOCUS[f].label)}</span></div>`);
+  w.style.display = bits.length ? '' : 'none';
+  w.innerHTML = bits.join('');
+ } catch (e) { console.warn('[pocket-phone] px home', e); }
+}
+function ppPxCcHTML() {
+ const b = ppPxBatt();
+ const lv = ppPxBattLevel();
+ const f = ppPxFocus();
+ const tile = (k, on, icon, lb) => `<button class="pp-cc-tile${on ? ' on' : ''}" data-cc="${k}">${icon}<span>${esc(lb)}</span></button>`;
+ return `<div class="pp-px-cc-batt"><span>${ppPxBattSVG(lv, b.charging)}</span><b>${lv}%</b><span>${b.charging ? 'กำลังชาร์จ' : ppPxOffline() ? esc(ppPxOfflineReason()) : 'ใช้แบตอยู่'}</span></div>
+  <div class="pp-cc-row pp-px-cc3">
+   ${tile('px-charge', !!b.charging, ICON.bolt, b.charging ? 'ถอดสายชาร์จ' : 'เสียบชาร์จ')}
+   ${tile('px-focus', !!f, ICON[f ? PP_PX_FOCUS[f].icon : 'moon'] || ICON.moon, f ? PP_PX_FOCUS[f].label : 'โฟกัส')}
+   ${tile('px-signal', !ppPx().noSignal, ppPx().noSignal ? ICON.nosignal : ICON.signal, ppPx().noSignal ? 'ไม่มีสัญญาณ' : 'มีสัญญาณ')}
+  </div>`;
+}
+/** คืน true ถ้าจัดการปุ่มนี้เองแล้ว */
+function ppPxCcClick(k) {
+ if (k === 'px-charge') { ppPxSetCharging(!ppPxBatt().charging); return true; }
+ if (k === 'px-signal') { ppPx().noSignal = !ppPx().noSignal; saveCfg(); ppToast(ppPx().noSignal ? 'ไม่มีสัญญาณ (ตามในเรื่อง)' : 'กลับมามีสัญญาณแล้ว'); ppPxApplyStatus(); return true; }
+ if (k === 'px-focus') { setTimeout(ppPxOpenFocusSheet, 260); return 'close'; }
+ if (k === 'dnd') { ppPxSetFocus(ppPxFocus() ? '' : 'dnd'); return true; }
+ return false;
+}
+function ppPxLockStackHTML() {
+ if (getCfg().pxLockStack === false) return '';
+ const list = (getCfg().notifCenter || []).filter(n => !n.seen).slice(-4).reverse();
+ const b = ppPxBatt();
+ const charge = getCfg().pxBattSim !== false && b.charging ? `<div class="pp-px-lock-charge">${ICON.bolt}กำลังชาร์จ ${ppPxBattLevel()}%</div>` : '';
+ if (!list.length) return charge;
+ return charge + `<div class="pp-px-lockstack">${list.map((n, i) => {
+  const c = n.cid ? findContact(n.cid) : null;
+  return `<div class="pp-px-lockn" style="--i:${i}">${c ? contactAvatarHTML(c, 34) : `<span class="pp-px-lockn-ic">${ICON.bell}</span>`}
+   <span class="pp-px-lockn-main"><span class="pp-px-lockn-top"><b>${esc(c ? dname(c) : 'Pocket Phone')}</b><span>${esc(fmtListTime(n.ts))}</span></span>
+   <span class="pp-px-lockn-txt">${ppPxSilenced(c) ? `<i class="pp-px-lockn-mute">${ICON.moon}</i>` : ''}${esc(n.text)}</span></span></div>`;
+ }).join('')}</div>`;
+}
+
+// ══════════════════════════════════════════════════════════
+// ★ หน้าตั้งค่า "ชีวิตจริง"
+// ══════════════════════════════════════════════════════════
+PP_SET_PAGES.push({ key: 'life', name: 'ชีวิตจริง', icon: ICON.bolt, color: '#30d158', sub: 'แบต สัญญาณ โฟกัส ส่องมือถือ ปฏิทิน ส่งของ' });
+function ppPxLifePageHTML() {
+ const cfg = getCfg();
+ const sw = (id, on, lb, sub) => `<div class="pp-cell"><span class="pp-cell-lb" style="flex-direction:column;align-items:flex-start;gap:2px"><span>${esc(lb)}</span>${sub ? `<span style="font-size:11px;color:var(--pp-txt3);line-height:1.4">${esc(sub)}</span>` : ''}</span><label class="pp-switch"><input type="checkbox" id="${id}"${on ? ' checked' : ''}><span></span></label></div>`;
+ const p = ppPx();
+ return `
+  <div class="pp-hint">ทำให้มือถือเป็นสิ่งของจริงในเรื่อง แบตหมดได้ ไม่มีสัญญาณได้ ปิดเสียงได้ และคนในเรื่องขอดูมือถือได้ ทุกอย่างส่งผลกับบทหลักจริง</div>
+  <div class="pp-sec-label">แบตเตอรี่</div>
+  <div class="pp-card">
+   ${sw('pp-px-battsim', cfg.pxBattSim !== false, 'จำลองแบตเตอรี่', 'แบตลดตามเวลาที่ใช้ ใช้สายนานกินแบตมาก ชาร์จได้ที่ศูนย์ควบคุม')}
+   ${sw('pp-px-battdie', cfg.pxBattCanDie !== false, 'แบตหมดแล้วเครื่องดับ', 'ดับแล้วข้อความกับสายจะค้างไว้จนกว่าจะชาร์จ')}
+   <div class="pp-cell"><span class="pp-cell-lb">ความเร็วแบตลด</span><select class="pp-sel" id="pp-px-battspeed">${[['slow', 'ช้า'], ['normal', 'ปกติ'], ['fast', 'เร็ว']].map(([k, l]) => `<option value="${k}"${(cfg.pxBattSpeed || 'normal') === k ? ' selected' : ''}>${l}</option>`).join('')}</select></div>
+   <div class="pp-cell"><span class="pp-cell-lb">แบตตอนนี้ ${ppPxBattLevel()}%</span><button class="pp-btn" data-px="batt-full">ชาร์จเต็มทันที</button></div>
+  </div>
+  <div class="pp-sec-label">สัญญาณและโฟกัส</div>
+  <div class="pp-card">
+   ${sw('pp-px-queue', cfg.pxOfflineQueue !== false, 'ไม่มีสัญญาณ = ข้อความค้าง', 'โหมดบิน ไม่มีสัญญาณ หรือแบตหมด ของที่ส่งมาจะเข้ามือถือตอนกลับมาออนไลน์ สายที่โทรมาจะเป็นสายที่ไม่ได้รับ')}
+   ${sw('pp-px-focusfav', cfg.pxFocusFav !== false, 'โฟกัสยังรับสายคนที่ปักหมุด', 'เหมือนรายการโปรดของ iPhone')}
+   <div class="pp-cell" data-px="focus-open"><span class="pp-cell-lb">โหมดโฟกัส</span><span style="color:var(--pp-txt3)">${esc(ppPxFocus() ? PP_PX_FOCUS[ppPxFocus()].label : 'ปิด')}</span></div>
+   ${ppPxQueuedCount() ? `<div class="pp-cell"><span class="pp-cell-lb">ค้างอยู่ ${ppPxQueuedCount()} รายการ</span><button class="pp-btn" data-px="queue-clear">ทิ้งทั้งหมด</button></div>` : ''}
+  </div>
+  <div class="pp-sec-label">โรลเพลย์</div>
+  <div class="pp-card">
+   ${sw('pp-px-inspect', cfg.pxInspect !== false, 'มีคนขอดูมือถือในโรล', 'ส่งแชท สาย อีเมล และรูปที่อยู่ในเครื่องจริงให้บอท บอทจะไม่แต่งเพิ่มเอง แชทที่ซ่อนไว้จะไม่ถูกเห็น')}
+   ${sw('pp-px-rpstate', cfg.pxRpState !== false, 'บอกบทหลักเรื่องสถานะเครื่อง', 'แบตใกล้หมด ไม่มีสัญญาณ โฟกัส ตำแหน่งที่แชร์ และของที่สั่ง — ส่งเฉพาะตอนที่ไม่ปกติ')}
+   ${sw('pp-px-calrp', cfg.pxCalRP !== false, 'ตัวละครจำนัดในปฏิทิน', 'ส่งนัด 7 วันข้างหน้าเข้าโรล')}
+   ${sw('pp-px-presence', cfg.pxPresence !== false, 'ออนไลน์ล่าสุดใต้ชื่อ', '')}
+   <div class="pp-cell"><span class="pp-cell-lb">แชทที่ซ่อนจากคนส่อง</span><span style="color:var(--pp-txt3)">${p.hidden.length} ห้อง</span></div>
+  </div>
+  <div class="pp-hint">ซ่อนแชทจากคนที่ส่องมือถือ: เปิดแชทนั้น แตะเมนูสามขีด แล้วเลือก "ซ่อนแชทนี้เวลามีคนส่องมือถือ"</div>
+  <div class="pp-sec-label">หน้าจอ</div>
+  <div class="pp-card">
+   ${sw('pp-px-today', cfg.pxTodayWidget !== false, 'วิดเจ็ตวันนี้บนหน้าจอหลัก', 'นัดถัดไป ของที่กำลังมาส่ง อีเมลใหม่ แบต')}
+   ${sw('pp-px-lockstack', cfg.pxLockStack !== false, 'กองแจ้งเตือนบนหน้าล็อก', '')}
+  </div>`;
+}
+const PP_PX_SWITCHES = {
+ 'pp-px-battsim': 'pxBattSim', 'pp-px-battdie': 'pxBattCanDie', 'pp-px-queue': 'pxOfflineQueue', 'pp-px-focusfav': 'pxFocusFav',
+ 'pp-px-inspect': 'pxInspect', 'pp-px-rpstate': 'pxRpState', 'pp-px-calrp': 'pxCalRP', 'pp-px-presence': 'pxPresence',
+ 'pp-px-today': 'pxTodayWidget', 'pp-px-lockstack': 'pxLockStack',
+};
+
+// ══════════════════════════════════════════════════════════
+// ★ หน้าจอแอพใหม่ + ตัวจัดการคลิก
+// ══════════════════════════════════════════════════════════
+APPS.splice(Math.max(0, APPS.findIndex(a => a.nav === 'settings')), 0,
+ { nav: 'pxcal', label: 'ปฏิทิน', glow: '#ff453a', icon: ICON.calendar },
+ { nav: 'pxmail', label: 'อีเมล', glow: '#0a84ff', icon: ICON.mail },
+ { nav: 'pxphotos', label: 'รูปภาพ', glow: '#ffd60a', icon: ICON.photos },
+ { nav: 'pxmap', label: 'แผนที่', glow: '#30d158', icon: ICON.map },
+ { nav: 'pxshop', label: 'ส่งของ', glow: '#ff9f0a', icon: ICON.bag },
+);
+function ppPxScreensHTML() {
+ const scr = (id, title, tools, back) => `
+ <div class="pp-screen" id="pp-scr-${id}">
+ <div class="pp-nav">
+ <button class="pp-nav-back" data-nav="${back || 'home'}">${ICON.back}</button>
+ <span class="pp-nav-title">${title}</span>
+ <div class="pp-nav-tools">${tools || ''}</div>
+ </div>
+ <div class="pp-body" id="pp-${id}-body"></div>
+ <div class="pp-home-bar"></div>
+ </div>`;
+ return `<!-- ══ [2.50.0] ชีวิตจริง ══ -->` +
+  scr('pxcal', 'ปฏิทิน', `<button class="pp-nav-action" data-px="cal-add" title="เพิ่มนัด">${ICON.plus}</button>`) +
+  scr('pxmail', 'อีเมล', `<button class="pp-nav-action" data-px="mail-new" title="เขียนอีเมล">${ICON.compose}</button>`) +
+  scr('pxmailread', 'อีเมล', '', 'pxmail') +
+  scr('pxphotos', 'รูปภาพ') +
+  scr('pxmap', 'แผนที่') +
+  scr('pxshop', 'ส่งของ');
+}
+const PP_PX_RENDER = { pxcal: renderPxCal, pxmail: renderPxMail, pxmailread: renderPxMailRead, pxphotos: renderPxPhotos, pxmap: renderPxMap, pxshop: renderPxShop };
+function ppPxRenderScreen(screen) {
+ const fn = PP_PX_RENDER[screen];
+ if (fn) { try { fn(); } catch (e) { console.warn('[pocket-phone] px render', screen, e); } }
+}
+async function ppPxClick(e) {
+ const el = e.target.closest('[data-px]');
+ if (!el) return;
+ const a = el.dataset.px;
+ const p = ppPx();
+ e.stopPropagation();
+ switch (a) {
+  case 'charge-on': ppPxSetCharging(true); return;
+  case 'close-phone': try { ppClose(); } catch {} return;
+  case 'cal-prev': ppPxCalMonth = new Date(ppPxCalMonth.getFullYear(), ppPxCalMonth.getMonth() - 1, 1); return renderPxCal();
+  case 'cal-next': ppPxCalMonth = new Date(ppPxCalMonth.getFullYear(), ppPxCalMonth.getMonth() + 1, 1); return renderPxCal();
+  case 'cal-day': ppPxCalSel = el.dataset.d; return renderPxCal();
+  case 'cal-add': return ppPxCalAddFlow();
+  case 'cal-ev': {
+   const ev = p.cal.find(x => x.id === el.dataset.id);
+   if (!ev) return;
+   return ppSheet(ev.title, [
+    { label: 'ลบนัดนี้', icon: ICON.trash, danger: true, onClick: () => { p.cal = p.cal.filter(x => x.id !== ev.id); saveCfg(); ppLog('phone', `${getUserDisplayName()} ลบนัด "${ev.title}" ออกจากปฏิทิน`); renderPxCal(); } },
+   ]);
+  }
+  case 'mail-tab': ppPxMailTab = el.dataset.t; return renderPxMail();
+  case 'mail-open': ppPxMailOpen = el.dataset.id; return ppNav('pxmailread');
+  case 'mail-new': return ppPxMailCompose('', '');
+  case 'mail-reply': { const m = p.mail.find(x => x.id === ppPxMailOpen); if (m) ppPxMailCompose(m.from, /^re:/i.test(m.subject) ? m.subject : 'Re: ' + m.subject); return; }
+  case 'mail-star': { const m = p.mail.find(x => x.id === ppPxMailOpen); if (m) { m.star = !m.star; saveCfg(); renderPxMailRead(); } return; }
+  case 'mail-del': p.mail = p.mail.filter(x => x.id !== ppPxMailOpen); saveCfg(); return ppNav('pxmail');
+  case 'ph-tab': ppPxPhotoTab = el.dataset.t; return renderPxPhotos();
+  case 'ph-open': return ppPxPhotoOpen(+el.dataset.i);
+  case 'map-me': return ppPrompt('ตอนนี้อยู่ที่ไหน', p.myLoc, v => { p.myLoc = String(v || '').trim().slice(0, 80); saveCfg(); if (p.shareLoc && p.myLoc) ppLog('phone', `${getUserDisplayName()} อัปเดตตำแหน่งที่แชร์: ${p.myLoc}`); renderPxMap(); }, { rows: 1 });
+  case 'map-pin': { const pl = ppPxPlaces().find(x => x.name === el.dataset.name); if (pl) ppToast(`${pl.name}${pl.who ? ' · ' + pl.who : ''}${pl.ts ? ' · ' + ppPxAgo(pl.ts) : ''}`); return; }
+  case 'map-person': {
+   const cid = el.dataset.cid;
+   return ppSheet(cname(cid), [
+    { label: 'เปิดแชท', icon: ICON.messages, onClick: () => ppOpenThread(cid) },
+    { label: p.myLoc ? `ส่งตำแหน่งของฉัน (${p.myLoc})` : 'ส่งตำแหน่งของฉัน', icon: ICON.pin2, onClick: () => {
+     if (!p.myLoc) { ppToast('ตั้งตำแหน่งของคุณก่อน'); return; }
+     pushThreadMsg(cid, { from: 'me', type: 'location', place: p.myLoc, note: '' });
+     ppLog('chat', `ส่งตำแหน่ง "${p.myLoc}" ให้ ${cname(cid)}`);
+     ppToast('ส่งตำแหน่งแล้ว');
+    } },
+   ]);
+  }
+  case 'shop-tab': ppPxShopTab = el.dataset.t; return renderPxShop();
+  case 'shop-item': return ppPxOrderFlow(+el.dataset.g, +el.dataset.i);
+  case 'batt-full': { const b = ppPxBatt(); b.level = 100; b.dead = false; b.warned = {}; b.t = Date.now(); saveCfg(); ppPxApplyStatus(); ppPxOnline(); return renderSetPage(); }
+  case 'focus-open': return ppPxOpenFocusSheet();
+  case 'queue-clear': p.queue = []; saveCfg(); ppToast('ทิ้งของที่ค้างแล้ว'); return renderSetPage();
+ }
+}
+function ppPxChange(e) {
+ const t = e.target;
+ if (!t || !t.id) return;
+ const key = PP_PX_SWITCHES[t.id];
+ if (key) {
+  getCfg()[key] = !!t.checked;
+  saveCfg();
+  if (key === 'pxBattSim' || key === 'pxBattCanDie') { if (!t.checked) { ppPxBatt().dead = false; } ppPxApplyStatus(); ppPxOnline(); }
+  if (key === 'pxTodayWidget') updateHomeWidgets();
+  return;
+ }
+ if (t.id === 'pp-px-battspeed') { ppPxBattTick(); getCfg().pxBattSpeed = t.value; saveCfg(); return; }
+ if (t.id === 'pp-px-shareloc') {
+  const p = ppPx();
+  p.shareLoc = !!t.checked;
+  saveCfg();
+  ppLog('phone', p.shareLoc ? `${getUserDisplayName()} เปิดแชร์ตำแหน่งสดให้เพื่อน${p.myLoc ? ` (${p.myLoc})` : ''}` : `${getUserDisplayName()} ปิดแชร์ตำแหน่งแล้ว`);
+ }
+}
+let ppPxTimer = null;
+function ppPxTick() {
+ try { ppPxBattTick(); } catch (e) { console.warn('[pocket-phone] px batt', e); }
+ try { ppPxOrderTick(); } catch (e) { console.warn('[pocket-phone] px order', e); }
+ try { ppPxCalTick(); } catch (e) { console.warn('[pocket-phone] px cal', e); }
+ try { ppPxHomeUpdate(null); } catch {}
+}
+function ppPxInit() {
+ const f = document.getElementById('pp-frame');
+ if (!f || f.dataset.pxReady) return;
+ f.dataset.pxReady = '1';
+ if (!document.getElementById('pp-px-css')) {
+  const s = document.createElement('style');
+  s.id = 'pp-px-css';
+  s.textContent = PP_PX_CSS;
+  document.head.appendChild(s);
+ }
+ f.addEventListener('click', ppPxClick, true);
+ f.addEventListener('change', ppPxChange);
+ ppPx();
+ ppPxWasOffline = ppPxOffline();
+ ppPxApplyStatus();
+ if (!ppPxTimer) ppPxTimer = setInterval(ppPxTick, 20000);
+ ppPxTick();
+}
+
+const PP_PX_CSS = `
+#pp-sb-batt{display:inline-flex;align-items:center;gap:3px;}
+#pp-cc .pp-px-cc3{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;}
+.pp-px-lockn-mute svg{width:11px;height:11px;margin-right:4px;vertical-align:-1px;color:#bf5af2;}
+.pp-px-item-ic svg{width:20px;height:20px;}
+#pp-home #pp-appgrid:not(.free){flex:1 1 auto;min-height:0;overflow-y:auto;overscroll-behavior:contain;align-content:start;scrollbar-width:none;}
+#pp-home #pp-appgrid:not(.free)::-webkit-scrollbar{display:none;}
+.pp-px-dead-in .pp-btn{min-width:200px;}
+#pp-sb-batt svg{height:12px;width:auto;}
+#pp-sb-batt svg.pct{height:13px;}
+#pp-sb-batt #pp-battery-pct{font-size:12px;font-weight:700;font-variant-numeric:tabular-nums;}
+#pp-frame.pp-battlow #pp-battery-pct{color:#ffd60a;}
+#pp-frame.pp-charging #pp-battery-pct{color:#30d158;}
+#pp-sb-focus{display:inline-flex;}
+#pp-sb-focus svg{height:12px;width:12px;color:#bf5af2;}
+#pp-frame.pp-nosignal .pp-sb-right > svg:nth-child(1){opacity:.28;}
+#pp-px-dead{position:absolute;inset:0;z-index:95;background:#000;display:flex;align-items:center;justify-content:center;animation:pp-px-fade .5s ease;}
+.pp-px-dead-in{text-align:center;color:#fff;display:flex;flex-direction:column;align-items:center;gap:10px;padding:0 30px;}
+.pp-px-dead-batt svg{width:120px;height:auto;color:#ff453a;}
+.pp-px-dead-t{font-size:22px;font-weight:700;}
+.pp-px-dead-s{font-size:13px;color:rgba(235,235,245,.6);line-height:1.6;}
+@keyframes pp-px-fade{from{opacity:0}to{opacity:1}}
+#pp-px-today{margin:4px 18px 0;padding:8px 12px;border-radius:18px;background:var(--pp-glass,rgba(28,28,30,.55));backdrop-filter:blur(24px) saturate(1.6);-webkit-backdrop-filter:blur(24px) saturate(1.6);
+ border:.5px solid rgba(255,255,255,.14);display:flex;flex-direction:column;gap:6px;}
+.pp-px-tw-row{display:flex;align-items:center;gap:8px;font-size:13px;flex-wrap:wrap;cursor:pointer;}
+.pp-px-tw-row svg{width:15px;height:15px;flex-shrink:0;opacity:.85;}
+.pp-px-tw-row span{flex:1;min-width:0;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pp-px-track{height:6px;border-radius:3px;background:var(--pp-fill3,rgba(120,120,128,.24));overflow:hidden;margin:8px 0 4px;}
+.pp-px-track.sm{flex-basis:100%;height:4px;margin:0;}
+.pp-px-track i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#30d158,#0a84ff);transition:width .6s ease;}
+.pp-px-cc-batt{display:flex;align-items:center;gap:10px;padding:10px 14px;margin:0 0 10px;border-radius:16px;background:rgba(255,255,255,.1);color:#fff;font-size:13px;}
+.pp-px-cc-batt svg{width:34px;height:auto;}
+.pp-px-cc-batt b{font-size:18px;font-variant-numeric:tabular-nums;}
+.pp-px-lockstack{position:relative;margin:18px 14px 0;display:flex;flex-direction:column;gap:8px;}
+.pp-px-lockn{display:flex;gap:10px;align-items:center;padding:10px 12px;border-radius:18px;background:rgba(40,40,44,.55);backdrop-filter:blur(24px);-webkit-backdrop-filter:blur(24px);
+ color:#fff;text-align:left;animation:pp-px-up .45s calc(var(--i) * 70ms) both cubic-bezier(.2,.9,.3,1.2);}
+.pp-px-lockn-ic{width:34px;height:34px;border-radius:10px;background:rgba(255,255,255,.15);display:flex;align-items:center;justify-content:center;}
+.pp-px-lockn-ic svg{width:18px;height:18px;}
+.pp-px-lockn-main{flex:1;min-width:0;display:flex;flex-direction:column;}
+.pp-px-lockn-top{display:flex;justify-content:space-between;font-size:13px;}
+.pp-px-lockn-top span{opacity:.6;font-size:12px;}
+.pp-px-lockn-txt{font-size:13px;opacity:.85;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pp-px-lock-charge{display:inline-flex;align-items:center;gap:6px;margin-top:10px;font-size:13px;color:#30d158;}
+.pp-px-lock-charge svg{width:14px;height:14px;}
+@keyframes pp-px-up{from{opacity:0;transform:translateY(14px) scale(.96)}to{opacity:1;transform:none}}
+.pp-px-cal-head{display:flex;align-items:center;justify-content:space-between;margin:2px 0 8px;font-size:17px;}
+.pp-px-cal-grid{display:grid;grid-template-columns:repeat(7,1fr);gap:4px;text-align:center;}
+.pp-px-cal-wd{font-size:11px;color:var(--pp-txt3);padding:4px 0;}
+.pp-px-cal-d{position:relative;aspect-ratio:1;border:none;border-radius:50%;background:none;color:var(--pp-txt);font-size:15px;cursor:pointer;}
+.pp-px-cal-d.today{color:#ff453a;font-weight:700;}
+.pp-px-cal-d.sel{background:var(--pp-accent);color:#fff;}
+.pp-px-cal-d.today.sel{background:#ff453a;}
+.pp-px-cal-d i{position:absolute;left:50%;bottom:5px;width:5px;height:5px;margin-left:-2.5px;border-radius:50%;background:currentColor;opacity:.7;}
+.pp-px-ev{display:flex;gap:10px;align-items:stretch;padding:10px 12px;border-bottom:.5px solid var(--pp-sep);cursor:pointer;}
+.pp-px-ev:last-child{border-bottom:none;}
+.pp-px-ev-bar{width:4px;border-radius:2px;flex-shrink:0;}
+.pp-px-ev-main{display:flex;flex-direction:column;gap:2px;font-size:14px;color:var(--pp-txt);}
+.pp-px-ev-main span{font-size:12px;color:var(--pp-txt3);}
+.pp-px-mail{display:flex;gap:12px;padding:12px 4px;border-bottom:.5px solid var(--pp-sep);cursor:pointer;}
+.pp-px-mail-av{width:40px;height:40px;border-radius:50%;flex-shrink:0;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;text-transform:uppercase;}
+.pp-px-mail-main{flex:1;min-width:0;display:flex;flex-direction:column;gap:2px;}
+.pp-px-mail-top{display:flex;justify-content:space-between;gap:8px;font-size:14px;color:var(--pp-txt);align-items:center;}
+.pp-px-mail-top > span{font-size:12px;color:var(--pp-txt3);}
+.pp-px-mail-subj{font-size:14px;color:var(--pp-txt);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pp-px-mail-subj svg{width:12px;height:12px;color:#ffd60a;margin-right:4px;vertical-align:-1px;}
+.pp-px-mail-prev{font-size:13px;color:var(--pp-txt3);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.pp-px-mail.unread .pp-px-mail-top b::before{content:'';display:inline-block;width:8px;height:8px;border-radius:50%;background:var(--pp-accent);margin-right:6px;}
+.pp-px-mailread h2{font-size:21px;margin:4px 0 14px;color:var(--pp-txt);line-height:1.3;}
+.pp-px-mailread .pp-px-mail-top{justify-content:flex-start;gap:10px;margin-bottom:14px;}
+.pp-px-mailread .pp-px-mail-top > span:last-child{display:flex;flex-direction:column;font-size:12px;color:var(--pp-txt3);}
+.pp-px-mailread .pp-px-mail-top b{color:var(--pp-txt);font-size:15px;}
+.pp-px-mail-text{font-size:15px;line-height:1.7;color:var(--pp-txt);white-space:normal;word-break:break-word;}
+.pp-px-mail-acts{display:flex;gap:8px;flex-wrap:wrap;margin-top:20px;}
+.pp-px-mail-acts .pp-btn svg{width:15px;height:15px;margin-right:5px;vertical-align:-2px;}
+.pp-px-phgrid{display:grid;grid-template-columns:repeat(3,1fr);gap:3px;border-radius:14px;overflow:hidden;}
+.pp-px-ph{position:relative;aspect-ratio:1;border:none;padding:6px;background:var(--pp-fill3) center/cover no-repeat;color:#fff;cursor:pointer;
+ display:flex;flex-direction:column;align-items:center;justify-content:center;gap:4px;font-size:11px;text-align:center;line-height:1.35;overflow:hidden;}
+.pp-px-ph.shot{background:linear-gradient(160deg,#3a3a3c,#1c1c1e);}
+.pp-px-ph svg{width:22px;height:22px;opacity:.8;}
+.pp-px-ph span{text-shadow:0 1px 4px rgba(0,0,0,.5);}
+.pp-px-ph-who{position:absolute;left:5px;bottom:4px;font-size:10px;opacity:.9;}
+.pp-px-snap{width:220px;max-width:100%;aspect-ratio:4/5;border-radius:16px;position:relative;display:flex;flex-direction:column;justify-content:flex-end;padding:12px;box-sizing:border-box;color:#fff;overflow:hidden;
+ box-shadow:inset 0 0 0 .5px rgba(255,255,255,.25);}
+.pp-px-snap::before{content:'';position:absolute;inset:0;background:radial-gradient(90% 60% at 30% 20%,rgba(255,255,255,.35),transparent 60%),linear-gradient(180deg,transparent 45%,rgba(0,0,0,.55));}
+.pp-px-snap.big{width:300px;}
+.pp-px-snap-ic{position:absolute;top:10px;right:10px;opacity:.85;}
+.pp-px-snap-ic svg{width:18px;height:18px;}
+.pp-px-snap-cap{position:relative;font-size:13px;line-height:1.5;font-style:italic;}
+.pp-px-shot{width:230px;max-width:100%;border-radius:14px;overflow:hidden;background:rgba(0,0,0,.28);}
+.pp-px-shot-hd{display:flex;align-items:center;gap:6px;font-size:11px;padding:7px 10px;background:rgba(255,255,255,.12);}
+.pp-px-shot-hd svg{width:13px;height:13px;}
+.pp-px-shot-body{padding:8px;display:flex;flex-direction:column;gap:4px;}
+.pp-px-shot-row{display:flex;}
+.pp-px-shot-row span{max-width:85%;font-size:11.5px;line-height:1.4;padding:5px 9px;border-radius:12px;background:rgba(120,120,128,.45);color:#fff;}
+.pp-px-shot-row.me{justify-content:flex-end;}
+.pp-px-shot-row.me span{background:#0a84ff;}
+.pp-px-viewer{background:var(--pp-card,#1c1c1e);border-radius:22px;padding:14px;max-width:92%;display:flex;flex-direction:column;gap:8px;align-items:center;}
+.pp-px-viewer img{max-width:100%;max-height:52vh;border-radius:14px;}
+.pp-px-viewer-cap{font-size:14px;color:var(--pp-txt);text-align:center;}
+.pp-px-viewer-meta{font-size:12px;color:var(--pp-txt3);}
+.pp-px-map{position:relative;height:300px;border-radius:20px;overflow:hidden;margin-bottom:6px;
+ background:radial-gradient(60% 50% at 70% 30%,rgba(48,209,88,.18),transparent 70%),linear-gradient(160deg,#e9efe6,#dfe7ee);}
+#pp-frame:not(.light) .pp-px-map{background:radial-gradient(60% 50% at 70% 30%,rgba(48,209,88,.14),transparent 70%),linear-gradient(160deg,#1f2a2c,#161c24);}
+.pp-px-map-roads{position:absolute;inset:0;width:100%;height:100%;}
+.pp-px-map-roads line{stroke:rgba(255,255,255,.85);stroke-width:1.6;vector-effect:non-scaling-stroke;}
+#pp-frame:not(.light) .pp-px-map-roads line{stroke:rgba(255,255,255,.16);}
+.pp-px-map-roads .park{fill:rgba(48,209,88,.28);}
+.pp-px-map-roads .river{fill:none;stroke:rgba(10,132,255,.45);stroke-width:5;vector-effect:non-scaling-stroke;}
+.pp-px-map-empty{position:absolute;inset:auto 16px 16px;font-size:12px;color:var(--pp-txt3);text-align:center;}
+.pp-px-mappin{position:absolute;transform:translate(-50%,-100%);border:none;background:none;padding:0;cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:2px;
+ animation:pp-px-drop .5s both cubic-bezier(.3,1.5,.5,1);}
+@keyframes pp-px-drop{from{opacity:0;transform:translate(-50%,-160%)}to{opacity:1;transform:translate(-50%,-100%)}}
+.pp-px-pin{width:30px;height:30px;border-radius:50%;background:#ff453a;color:#fff;display:flex;align-items:center;justify-content:center;box-shadow:0 3px 10px rgba(0,0,0,.35);border:2px solid #fff;}
+.pp-px-pin svg{width:16px;height:16px;}
+.pp-px-pin.me{background:#0a84ff;font-weight:700;font-size:13px;animation:pp-px-pulse 2s infinite;}
+.pp-px-pin.av{background:#fff;overflow:hidden;}
+@keyframes pp-px-pulse{0%{box-shadow:0 0 0 0 rgba(10,132,255,.55)}70%{box-shadow:0 0 0 14px rgba(10,132,255,0)}100%{box-shadow:0 0 0 0 rgba(10,132,255,0)}}
+.pp-px-mappin-lb{font-size:10px;font-weight:600;padding:1px 6px;border-radius:8px;background:rgba(0,0,0,.55);color:#fff;white-space:nowrap;}
+.pp-px-shopgrid{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;}
+.pp-px-item{display:flex;flex-direction:column;align-items:flex-start;gap:4px;padding:12px;border-radius:16px;border:.5px solid var(--pp-sep2,var(--pp-sep));background:var(--pp-card,var(--pp-fill3));cursor:pointer;text-align:left;color:var(--pp-txt);}
+.pp-px-item:active{transform:scale(.97);}
+.pp-px-item-ic{width:38px;height:38px;border-radius:12px;display:flex;align-items:center;justify-content:center;color:#fff;font-weight:700;font-size:17px;}
+.pp-px-item-nm{font-size:13.5px;line-height:1.35;}
+.pp-px-item-pr{font-size:13px;color:var(--pp-accent);font-weight:700;}
+.pp-px-order{padding:12px 14px;}
+.pp-px-order-top{display:flex;justify-content:space-between;gap:8px;color:var(--pp-txt);font-size:15px;}
+.pp-px-order-top span{font-size:13px;color:var(--pp-txt3);}
+.pp-px-order-sub{font-size:12.5px;color:var(--pp-txt3);margin-top:2px;}
+.pp-px-steps{display:flex;justify-content:space-between;font-size:10.5px;color:var(--pp-txt3);}
+.pp-px-steps span.on{color:#30d158;font-weight:700;}
+.pp-voice-vm{display:flex;align-items:center;gap:5px;font-size:11px;opacity:.75;margin-bottom:4px;}
+.pp-voice-vm svg{width:12px;height:12px;}
+@media (prefers-reduced-motion: reduce){ .pp-px-lockn,.pp-px-mappin,.pp-px-pin.me,#pp-px-dead{animation:none !important;} }
+`;
+console.log(`[pocket-phone] ${PP_VERSION} ท่อน 5/5 พร้อม - ชีวิตจริงในมือถือ`);
+
+// ══════════════════════════════════════════════════════════
 // BOOT
 // ══════════════════════════════════════════════════════════
 window.PP_OPEN = ppOpen;
@@ -30116,6 +31595,7 @@ window.PP_LOADED = 'parsed';
  ppDetect(true);
  injectFab();
  injectPhone();
+ try { ppPxInit(); } catch (e) { console.warn('[pocket-phone] px init', e); } // ★ [2.50.0]
  injectExternalIsland();
  registerSettingsPanel();
  startClock();
