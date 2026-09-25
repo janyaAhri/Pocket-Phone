@@ -23,7 +23,7 @@
 // getContext ล้วน · ไม่มี import/export · lazy + try/catch
 // ⚠️ รันเดี่ยวไม่ได้ ต้องแปะครบ 4 ท่อน
 
-const PP_VERSION = '2.51.0';
+const PP_VERSION = '2.51.1';
 const MODULE_NAME = 'pocket-phone';
 
 // ══════════════════════════════════════════════════════════
@@ -2886,10 +2886,12 @@ function ppBuildBridgeParts(actionBody, hay) {
  ].filter(Boolean).join('\n'));
 
  const mods = {};
+ const hitWords = {}; // ★ [2.51.1] คำที่ทำให้ส่ง ไว้โชว์ในหน้าสะพานเชื่อม
  const put = (key, text) => {
   if (!text) return;
   if (!ppKwMeasuring && !ppKwPass(key, H)) return;
   hits[key] = true;
+  if (!ppKwMeasuring) { const w = ppKwMatchWord(key, H); if (w) hitWords[key] = w; }
   mods[key] = text;
  };
 
@@ -3013,7 +3015,7 @@ function ppBuildBridgeParts(actionBody, hay) {
 
  const body = actionBody || '';
  const botBatch = bridgeOn('actionlog') ? ppPrepareBotBatch() : null;
- if (!ppKwMeasuring) cfg.kwLastHit = hits;
+ if (!ppKwMeasuring) { cfg.kwLastHit = hits; cfg.kwLastWord = hitWords; }
  return {
   core, mods,
   actionBody: bridgeOn('actionlog') ? body : '',
@@ -3148,7 +3150,10 @@ function ppKwTokenStats(cache) {
   const n = hist.filter(t => t.sent.includes(m.key)).length;
   freq[m.key] = { n, of: hist.length, tokFull: tokOf(m.key), tokAvg: hist.length ? Math.round(tokOf(m.key) * n / hist.length) : (hitLast[m.key] ? tokOf(m.key) : 0) };
  });
- return { core, full, last, avg, turns: hist.length, gated: gated.length, saved: Math.max(0, full - avg), pct: full ? Math.round(Math.max(0, full - avg) * 100 / full) : 0, freq };
+ // ★ [2.51.1] ส่วนที่ส่งทุกเทิร์นแน่นอน (แกนหลัก + โมดูลที่ไม่ได้เปิดคีย์เวิร์ด) กับส่วนที่คีย์เวิร์ดคุมได้จริง
+ const alwaysMods = on.filter(m => !ppKwOn(m.key)).reduce((a, m) => a + tokOf(m.key), 0);
+ const gatedFull = gated.reduce((a, m) => a + tokOf(m.key), 0);
+ return { core, full, last, avg, turns: hist.length, gated: gated.length, saved: Math.max(0, full - avg), pct: full ? Math.round(Math.max(0, full - avg) * 100 / full) : 0, freq, alwaysMods, fixed: core + alwaysMods, gatedFull };
 }
 function ppApplyBridgePreset(kind) {
  const cfg = getCfg();
@@ -3797,17 +3802,19 @@ function ppCallTranscriptLines(transcript, cName, uName) {
 // เดิมส่งทุกโมดูลทุกเทิร์นแม้ไม่มีใครพูดถึงเรื่องนั้น
 // ══════════════════════════════════════════════════════════
 const PP_KW_DEFAULT = {
- msg: 'ข้อความ,แชท,ทัก,ส่ง,พิมพ์,ตอบ,เสียง,สติกเกอร์,ตำแหน่ง,ที่ไหน,ของขวัญ,line,text,message',
- groupcall: 'โทร,สาย,รับสาย,วางสาย,คุยสาย,กลุ่ม,แชทกลุ่ม,call,ring',
- feed: 'โพสต์,ฟีด,ลง,คอมเมนต์,เม้น,ไลก์,กดใจ,รีโพสต์,แชร์,โพล,ig,feed,post',
+ // ★ [2.51.1] ตัดคำสั้นที่ไปตรงกับคำอื่นทั้งประโยคออก เช่น "ลง" ตรงกับ "ลงมา" "สาย" ตรงกับ "สายตา"
+ // "ส่ง/ตอบ/ทัก" เจอแทบทุกเทิร์น — ของเดิมทำให้เปิดคีย์เวิร์ดแล้วแทบไม่ข้ามอะไรเลย
+ msg: 'ข้อความ,แชท,ทักมา,ทักไป,ส่งข้อความ,พิมพ์ข้อความ,ข้อความเสียง,สติกเกอร์,ส่งตำแหน่ง,ของขวัญ,ไลน์,line,text,message',
+ groupcall: 'โทร,รับสาย,วางสาย,สายเข้า,คุยสาย,ไม่รับสาย,แชทกลุ่ม,ในกลุ่ม,call,ring',
+ feed: 'โพสต์,ฟีด,ลงไอจี,ลงรูป,ลงโซเชียล,คอมเมนต์,เม้น,ไลก์,กดใจ,รีโพสต์,แชร์โพสต์,โพล,ig,feed,post',
  story: 'สตอรี่,สตอรี,story,ลงสตอรี่,ดูสตอรี่',
- wallet: 'เงิน,โอน,จ่าย,ยืม,ขอเงิน,ค่า,บาท,วอน,ราคา,ซื้อ,money,pay',
- social: 'ติดตาม,ฟอล,เลิกติดตาม,สเตตัส,โปรไฟล์,follow,status',
- news: 'ข่าว,ประกาศ,เหตุการณ์,หนังสือพิมพ์,news',
+ wallet: 'เงิน,โอนเงิน,โอนให้,จ่ายเงิน,จ่ายค่า,ยืมเงิน,บาท,ราคา,money,pay',
+ social: 'กดติดตาม,ฟอลโล่,ฟอล,เลิกติดตาม,สเตตัส,โปรไฟล์,follow,status',
+ news: 'ข่าว,หนังสือพิมพ์,news',
  inv_contacts: '',
  inv_stickers: 'สติกเกอร์,sticker',
  inv_posts: 'โพสต์,ฟีด,คอมเมนต์,รีโพสต์,แชร์,post,feed',
- inv_ui: 'ธีม,สี,วอลเปเปอร์,หน้าตา,มือถือ,ฟอง,theme',
+ inv_ui: 'ธีมมือถือ,วอลเปเปอร์,หน้าจอมือถือ,theme',
  actionlog: '',
 };
 function ppKwOn(key) {
@@ -3835,6 +3842,11 @@ function ppKwPass(key, hay) {
  const words = ppKwWords(key);
  if (!words.length) return true;
  return words.some(w => hay.includes(w));
+}
+/** ★ [2.51.1] คำไหนที่ทำให้โมดูลนี้ถูกส่ง — '' ถ้าไม่เจอ หรือโมดูลไม่ได้เปิดคีย์เวิร์ด */
+function ppKwMatchWord(key, hay) {
+ if (!ppKwOn(key)) return '';
+ return ppKwWords(key).find(w => hay.includes(w)) || '';
 }
 // ── ตัวแก้คำ prompt ──
 function ppPromptText(key, fallback) {
@@ -20977,6 +20989,14 @@ const PP_GUIDE_FAQ = [
    text: 'ใช้รูปเล็กลง หรือใช้ลิงก์แทนการดึงจากเครื่อง · รูปจากลิงก์ไม่กินพื้นที่และส่งต่อไปเครื่องคนอื่นได้ด้วย' },
 ];
 const PP_CHANGELOG = [
+ { v: '2.51.1', title: 'คีย์เวิร์ดประหยัดได้จริง และบอกเหตุผลว่าทำไมส่ง',
+   lines: [
+    'คำค้นเริ่มต้นหลายคำสั้นเกินไปจนไปตรงกับคำอื่นเกือบทุกประโยค เช่น "ลง" ตรงกับ "ลงมา" "สาย" ตรงกับ "สายตา" "ค่า" ตรงกับ "มีค่า" "นัด" ตรงกับ "ถนัด" เปิดคีย์เวิร์ดแล้วแทบไม่ข้ามอะไรเลย เปลี่ยนเป็นคำที่เจาะจงขึ้น เช่น "ลงไอจี" "รับสาย" "โอนเงิน" "นัดเจอ"',
+    'หน้าสะพานเชื่อมบอกแล้วว่าแต่ละโมดูลถูกส่งเพราะเจอคำไหน',
+    'การ์ดโทเคนแยกให้เห็นว่าส่วนไหนส่งทุกเทิร์นแน่นอน คือคำสั่งแกนหลักกับโมดูลที่ไม่ได้เปิดคีย์เวิร์ด และส่วนไหนที่คีย์เวิร์ดคุมได้จริง พร้อมบอกว่าประหยัดได้มากสุดกี่เปอร์เซ็นต์',
+   ],
+   tip: 'ถ้าเคยแก้คำค้นของโมดูลไหนเองไว้ คำเดิมของคุณยังอยู่ กด "คืนคำค้นเริ่มต้น" ในหน้าแก้คำสั่งของโมดูลนั้นเพื่อใช้ชุดใหม่' },
+
  { v: '2.51.0', title: 'ยุคของเครื่อง 13 แบบ โทเคนจริงตอนเปิดคีย์เวิร์ด และแก้ป๊อปอัพ พื้นหลังแชท แผนที่',
    lines: [
     'ยุคของเครื่อง เปลี่ยนมือถือทั้งเครื่องได้ 13 แบบ ปัจจุบัน ปุ่มกดจอเขียว 1999 ฝาพับจอสี Y2K 2004 คีย์บอร์ด QWERTY 2008 สมาร์ทโฟนยุคแรก 2010 ไทล์สี่เหลี่ยม แอนดรอยด์โฮโล ลูกกวาดโปร่งแสง ไซเบอร์พังก์ 2077 โฮโลแกรม กระจกเวทมนตร์ ทองเหลืองไอน้ำ และหยกโบราณ',
@@ -22701,7 +22721,7 @@ function renderKwPage() {
   <span class="pp-kwtitle">${esc(m.label)}</span>
   <span class="pp-kwwords">${esc(words || 'ไม่ได้ตั้งคำ = ส่งตลอด')}</span>
   </span>
-  <span class="pp-kwhit ${hits[m.key] ? 'on' : 'off'}">${hits[m.key] ? 'ส่งแล้ว' : 'ข้าม'}</span>
+  <span class="pp-kwhit ${hits[m.key] ? 'on' : 'off'}" title="${esc((cfg.kwLastWord || {})[m.key] ? 'เจอคำว่า ' + cfg.kwLastWord[m.key] : '')}">${hits[m.key] ? ((cfg.kwLastWord || {})[m.key] ? `ส่ง · "${esc(cfg.kwLastWord[m.key])}"` : 'ส่งแล้ว') : 'ข้าม'}</span>
   <button class="pp-bldrow-del" data-peopen="${esc(m.key)}" style="color:var(--pp-accent)">${ICON.compose}</button>
   <label class="pp-switch"><input type="checkbox" data-kwmod="${esc(m.key)}"${on ? ' checked' : ''}><span></span></label>
   </div>`;
@@ -23219,6 +23239,7 @@ function renderSetPage() {
    <span class="pp-cell-lb" style="flex-direction:column;align-items:flex-start;gap:2px">
    <span>${esc(m.label)}${ppPromptIsEdited(m.key) ? '<span class="pp-editbadge">แก้แล้ว</span>' : ''}</span>
    <span style="font-size:11px;color:var(--pp-txt3);line-height:1.4">${esc(m.hint)}</span>
+   ${gated && sent && (cfg.kwLastWord || {})[m.key] ? `<span style="font-size:10px;color:#ff9f0a">เทิร์นล่าสุดส่งเพราะเจอคำว่า "${esc(cfg.kwLastWord[m.key])}"</span>` : ''}
    ${gated ? `<span style="font-size:10px;color:var(--pp-txt3)">คีย์เวิร์ดเปิด · ${fq && fq.of ? `ส่งจริง ${fq.n}/${fq.of} เทิร์น · เฉลี่ย ${fq.tokAvg} tok ต่อเทิร์น จากเต็ม ${fq.tokFull}` : 'ส่งเฉพาะตอนเข้าเงื่อนไข · ยังไม่มีเทิร์นให้นับ'}</span>` : ''}
    </span>
    <span style="display:flex;align-items:center;gap:6px;flex-shrink:0">
@@ -23242,7 +23263,11 @@ function renderSetPage() {
    <div><b>${kst.full}</b><span>ถ้าไม่มีคีย์เวิร์ด</span></div>
    <div class="save"><b>${kst.pct}%</b><span>ประหยัด ${kst.saved} tok</span></div>
   </div>
-  <div class="pp-kwbar"><i style="width:${kst.full ? Math.round(kst.avg * 100 / kst.full) : 0}%"></i></div>` : ''}
+  <div class="pp-kwbar"><i style="width:${kst.full ? Math.round(kst.avg * 100 / kst.full) : 0}%"></i></div>
+  <div class="pp-kwsplit">
+   <div><span class="dot fix"></span>ส่งทุกเทิร์นแน่นอน <b>${kst.fixed} tok</b> · แกนหลัก ${kst.core} + โมดูลที่ไม่ได้เปิดคีย์เวิร์ด ${kst.alwaysMods}</div>
+   <div><span class="dot kw"></span>คีย์เวิร์ดคุมได้แค่ <b>${kst.gatedFull} tok</b> จาก ${kst.full} · ประหยัดได้มากสุด ${kst.full ? Math.round(kst.gatedFull * 100 / kst.full) : 0}% ถ้าไม่มีคำไหนตรงเลย</div>
+  </div>` : ''}
   <div class="pp-tokcard-sub">${measured
    ? (kst && kst.gated
       ? `เปิดคีย์เวิร์ด ${kst.gated} โมดูล · เทิร์นล่าสุดข้าม ${nSkipped} โมดูล · แกนหลัก ${kst.core} tok ส่งทุกเทิร์น<br>ค่าเฉลี่ยคิดจากเทิร์นจริงที่เล่นไป ไม่ใช่การเดา · นับด้วย${esc(cache.tokenizer)} · วัดเมื่อ ${esc(fmtNoteAge(cache.measuredAt))}`
@@ -31293,7 +31318,7 @@ Object.assign(PP_TYPE_ALIAS, {
  phone_state: ['phone_state', 'battery', 'device', 'device_state', 'signal'],
  delivery: ['delivery', 'food_delivery', 'parcel', 'package', 'send_delivery'],
 });
-PP_KW_DEFAULT.life = 'อีเมล,เมล,จดหมาย,นัด,ปฏิทิน,พรุ่งนี้,วันเกิด,รูป,ถ่าย,เซลฟี่,ตำแหน่ง,อยู่ที่ไหน,สั่ง,ส่งของ,ไรเดอร์,แบต,สัญญาณ,ชาร์จ,ฝากข้อความ,email,photo,selfie,deliver,battery';
+PP_KW_DEFAULT.life = 'อีเมล,จดหมาย,นัดกัน,นัดเจอ,นัดไว้,มีนัด,ปฏิทิน,วันเกิด,ส่งรูป,ถ่ายรูป,เซลฟี่,แชร์ตำแหน่ง,สั่งอาหาร,สั่งของ,ส่งของ,ไรเดอร์,แบต,ไม่มีสัญญาณ,ชาร์จ,ฝากข้อความ,email,photo,selfie,deliver,battery';
 PP_MOD_TYPES.life = ['email', 'calendar', 'photo', 'place', 'phone_state', 'delivery'];
 ['email', 'photo', 'place', 'delivery'].forEach(t => { if (!PP_SENDER_TYPES.includes(t)) PP_SENDER_TYPES.push(t); });
 BRIDGE_MOD_META.push({ key: 'life', label: 'ชีวิตจริงในมือถือ', group: 'events', hint: 'อีเมล · ปฏิทินนัดหมาย · รูปถ่ายจากตัวละคร · ตำแหน่งสด · ส่งของมาให้ · แบต/สัญญาณจากในเรื่อง · ฝากข้อความเสียง' });
@@ -31685,6 +31710,9 @@ const PP_PX_CSS = `
 .pp-kwstat span{font-size:10px;color:var(--pp-txt3);text-align:center;line-height:1.3;}
 .pp-kwstat .save b{color:#30d158;}
 .pp-kwbar{height:6px;border-radius:3px;background:var(--pp-fill3);overflow:hidden;margin-bottom:6px;}
+.pp-kwsplit{display:flex;flex-direction:column;gap:4px;font-size:11.5px;line-height:1.45;margin:2px 0 8px;opacity:.95;}
+.pp-kwsplit .dot{display:inline-block;width:8px;height:8px;border-radius:50%;margin-right:6px;vertical-align:0;}
+.pp-kwsplit .dot.fix{background:#ff9f0a;} .pp-kwsplit .dot.kw{background:#30d158;}
 .pp-kwbar i{display:block;height:100%;border-radius:3px;background:linear-gradient(90deg,#30d158,#ffd60a);}
 /* ★ [2.51.0] แผนที่ลากได้ ซูมได้ */
 .pp-px-map{position:relative;height:380px;border-radius:20px;overflow:hidden;margin-bottom:6px;touch-action:none;cursor:grab;user-select:none;-webkit-user-select:none;

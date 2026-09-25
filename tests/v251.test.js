@@ -91,6 +91,15 @@ const q = (E, s) => { const r = quiet(); try { return E.ev(s); } finally { r(); 
     ok(/จ่ายจริงเฉลี่ยต่อเทิร์น/.test(html) && /pp-kwstat/.test(html) && /ส่งจริง 1\/2 เทิร์น/.test(html), 'bridge page shows real cost');
     ok(/^~\d+ tok$/.test(E.ev("ppSetPageValue('bridge')")), 'settings index shows avg', E.ev("ppSetPageValue('bridge')"));
     ok(E.ev("PP_KW_DEFAULT.life").includes('อีเมล'), 'life keywords');
+    ok(st.fixed === st.full - st.gatedFull && st.fixed >= st.core, 'fixed vs gated split', st);
+    ok(/ส่งทุกเทิร์นแน่นอน/.test(html) && /คีย์เวิร์ดคุมได้แค่/.test(html), 'split shown');
+    ok(E.ev("getCfg().kwLastWord.groupcall") === 'โทร', 'trigger word recorded', E.ev('getCfg().kwLastWord'));
+    ok(/เจอคำว่า "โทร"/.test(html), 'trigger word shown');
+    // คำสั้นที่เคยตรงทุกประโยคต้องไม่ตรงแล้ว
+    q(E, "getCfg().kwPerMod = { feed:true, groupcall:true, wallet:true, life:true }; getCfg().bridgeMods.feed = true");
+    const hay = 'เธอเดินลงมาพร้อมสายตาที่มีค่า ถนัดมือซ้าย แล้วเดินตามไป';
+    ['feed', 'groupcall', 'wallet', 'life'].forEach(k => ok(E.ev(`ppKwMatchWord('${k}', ${JSON.stringify(hay)})`) === '', 'no false hit ' + k, E.ev(`ppKwMatchWord('${k}', ${JSON.stringify(hay)})`)));
+    ok(E.ev(`ppKwMatchWord('feed', 'เดี๋ยวลงไอจีให้ดู')`) === 'ลงไอจี', 'real hit feed');
   }
   // ── พื้นหลังแชท
   {
