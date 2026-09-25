@@ -2,6 +2,6 @@
   "name": "pocket-phone-tests",
   "private": true,
   "description": "จำลองหน้าเว็บแล้วรัน index.js จริง — SillyTavern ไม่โหลดโฟลเดอร์นี้",
-  "scripts": { "test": "node roleplay.test.js && node life.test.js && node v251.test.js" },
+  "scripts": { "test": "node roleplay.test.js && node life.test.js && node v251.test.js && node v252.test.js" },
   "devDependencies": { "jsdom": "^24.0.0" }
 }

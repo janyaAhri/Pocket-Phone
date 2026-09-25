@@ -1,4 +1,5 @@
 // pocket-phone/index.js
+// ★ [2.52.0] ท่อน 7 "สะพานอัจฉริยะ" (ppBr*) — ย่อแกนหลักอัตโนมัติ · งบโทเคน · ความคุ้ม · แนวโรล (PP_GENRES) · กู้เฟรมที่หาย · ดูก่อนส่ง · จังหวะ · ข้อห้าม · มือเดียว
 // ★ [2.51.0] ท่อน 6 "ยุคของเครื่อง" (ppEra*, PP_ERAS 13 แบบ) · โทเคนจริงเมื่อเปิดคีย์เวิร์ด (ppKwTokenStats, kwTurnHist)
 // · ป๊อปอัพเบลอพื้นหลัง · พื้นหลังแชทอยู่บนชั้นตรึง #pp-chat-bgl · แผนที่ลาก/ซูมได้
 // ★ [2.50.0] ท่อน 5/5 "ชีวิตจริงในมือถือ" (ppPx*) — แบตจำลอง · ออฟไลน์จริง (คิวข้อความ) · โหมดโฟกัส
@@ -23,7 +24,7 @@
 // getContext ล้วน · ไม่มี import/export · lazy + try/catch
 // ⚠️ รันเดี่ยวไม่ได้ ต้องแปะครบ 4 ท่อน
 
-const PP_VERSION = '2.51.1';
+const PP_VERSION = '2.52.0';
 const MODULE_NAME = 'pocket-phone';
 
 // ══════════════════════════════════════════════════════════
@@ -2869,7 +2870,7 @@ function ppBuildBridgeParts(actionBody, hay) {
  const H = String(hay || '');
  const maxEv = Math.max(1, Math.min(20, cfg.syncMaxEvents || 8));
  const hits = {};
- const core = ppPromptText('core', [
+ const coreFull = ppPromptText('core', [
   `[Pocket Phone v2 one-request bridge. This is part of the SAME normal response and must never trigger or imply a second model call.]`,
   `After the normal roleplay prose, append exactly one plain data frame (not HTML, not a div, not a comment, not a code fence):`,
   `${PP_SYNC_FRAME_START}{"v":2,"events":[]}${PP_SYNC_FRAME_END}`,
@@ -2884,6 +2885,9 @@ function ppBuildBridgeParts(actionBody, hay) {
   // ★ 2.4.1 บรรทัดเวลาย้ายออกไปเป็น system message แยกใน interceptor
   //   เพราะ core ถูกแคชไว้ เวลาจึงค้างอยู่ที่ตอนกดวัดโทเคนครั้งล่าสุด
  ].filter(Boolean).join('\n'));
+ // ★ [2.52.0] บอทแนบข้อมูลถูกติดกันแล้ว ใช้คำสั่งฉบับย่อ + ต่อท้ายแนวโรล จังหวะ ข้อห้าม
+ const coreShort = ppBrUseShortCore();
+ const core = [coreShort ? ppBrShortCore() : coreFull].concat(ppBrExtraCoreLines()).join('\n');
 
  const mods = {};
  const hitWords = {}; // ★ [2.51.1] คำที่ทำให้ส่ง ไว้โชว์ในหน้าสะพานเชื่อม
@@ -3015,9 +3019,17 @@ function ppBuildBridgeParts(actionBody, hay) {
 
  const body = actionBody || '';
  const botBatch = bridgeOn('actionlog') ? ppPrepareBotBatch() : null;
+ // ★ [2.52.0] งบโทเคน: ตัดโมดูลสำคัญน้อยทิ้งจนไม่เกินงบ
+ let dropped = [];
+ if (!ppKwMeasuring) {
+  const cch = cfg.bridgeTokenCache;
+  const coreTok = cch && cch.ok && cch.mods ? (parseInt(cch.mods[coreShort ? 'coreShort' : 'core'], 10) || 0) : 0;
+  dropped = ppBrApplyBudget({ mods }, coreTok);
+  dropped.forEach(k => { delete hits[k]; delete hitWords[k]; });
+ }
  if (!ppKwMeasuring) { cfg.kwLastHit = hits; cfg.kwLastWord = hitWords; }
  return {
-  core, mods,
+  core, mods, coreShort, dropped,
   actionBody: bridgeOn('actionlog') ? body : '',
   botBody: botBatch ? botBatch.body : '',
   botIds: botBatch ? botBatch.ids : null,
@@ -3070,6 +3082,7 @@ async function ppMeasureBridgeTokens(force) {
   ppKwMeasuring = true;
   try { parts = ppBuildBridgeParts('', 'ข้อความ โทร โพสต์ สตอรี่ เงิน ติดตาม ข่าว สติกเกอร์ ธีม'); } finally { ppKwMeasuring = false; }
   out.mods.core = await ppCountTokens(parts.core);
+  out.mods.coreShort = await ppCountTokens([ppBrShortCore()].concat(ppBrExtraCoreLines()).join('\n')); // ★ [2.52.0]
   for (const k of Object.keys(parts.mods)) out.mods[k] = await ppCountTokens(parts.mods[k]);
   out.mods.actionlog = await ppCountTokens(ppBuildActionMessage(ppBuildLogBody() || '- ตัวอย่างบรรทัดกิจกรรมหนึ่งบรรทัด', ''));
   // ★ 1.9.0 วัดกระจกฝั่งบอทแยกให้เห็นตัวเลข
@@ -3120,11 +3133,12 @@ function ppKwRecordTurn(parts) {
  BRIDGE_MOD_META.forEach(m => {
   if (!bridgeOn(m.key)) return;
   const gated = ppKwOn(m.key);
-  if (!gated || (parts && parts.mods && parts.mods[m.key] !== undefined)) sent.push(m.key);
+  if (parts && (parts.dropped || []).includes(m.key)) skipped.push(m.key);
+  else if (!gated || (parts && parts.mods && parts.mods[m.key] !== undefined)) sent.push(m.key);
   else skipped.push(m.key);
  });
  if (!Array.isArray(cfg.kwTurnHist)) cfg.kwTurnHist = [];
- cfg.kwTurnHist.push({ ts: Date.now(), sent, skipped });
+ cfg.kwTurnHist.push({ ts: Date.now(), sent, skipped, core: parts && parts.coreShort ? 's' : 'f' });
  if (cfg.kwTurnHist.length > 30) cfg.kwTurnHist = cfg.kwTurnHist.slice(-30);
  saveCfg();
 }
@@ -3142,7 +3156,8 @@ function ppKwTokenStats(cache) {
  const hist = (Array.isArray(cfg.kwTurnHist) ? cfg.kwTurnHist : []).slice(-20);
  // เทิร์นที่ยังไม่เคยบันทึก: โมดูลที่เปิดคีย์เวิร์ด ถือว่าเป็นไปตามป้ายเทิร์นล่าสุด
  const hitLast = cfg.kwLastHit || {};
- const costTurn = t => core + on.reduce((a, m) => a + ((!ppKwOn(m.key) || (t ? t.sent.includes(m.key) : hitLast[m.key] === true)) ? tokOf(m.key) : 0), 0);
+ const coreS = parseInt(c.mods.coreShort, 10) || core;
+ const costTurn = t => (t && t.core === 's' ? coreS : core) + on.reduce((a, m) => a + ((t ? t.sent.includes(m.key) : (!ppKwOn(m.key) || hitLast[m.key] === true)) ? tokOf(m.key) : 0), 0);
  const last = costTurn(hist[hist.length - 1] || null);
  const avg = hist.length ? Math.round(hist.reduce((a, t) => a + costTurn(t), 0) / hist.length) : last;
  const freq = {};
@@ -20989,6 +21004,20 @@ const PP_GUIDE_FAQ = [
    text: 'ใช้รูปเล็กลง หรือใช้ลิงก์แทนการดึงจากเครื่อง · รูปจากลิงก์ไม่กินพื้นที่และส่งต่อไปเครื่องคนอื่นได้ด้วย' },
 ];
 const PP_CHANGELOG = [
+ { v: '2.52.0', title: 'สะพานอัจฉริยะ: ย่อคำสั่งเอง งบโทเคน แนวโรลสำเร็จรูป กู้ของที่บอทลืมแนบ',
+   lines: [
+    'ย่อคำสั่งแกนหลักอัตโนมัติ บอทแนบข้อมูลถูกติดกันสองเทิร์นแล้ว เทิร์นต่อไปส่งฉบับย่อแทนฉบับเต็ม ส่งฉบับเต็มซ้ำทุก 8 เทิร์นกันลืม และทันทีที่บอทพลาด',
+    'งบโทเคนต่อเทิร์น ตั้งเพดานได้ เกินงบแล้วระบบตัดโมดูลที่สำคัญน้อยทิ้งก่อน ข้อความกับโทรตัดทีหลังสุด',
+    'รายงานความคุ้มค่า บอกว่าแต่ละโมดูลส่งไปกี่เทิร์น ทำให้เกิดอะไรในมือถือกี่ครั้ง ใช้โทเคนกี่ตัวต่อหนึ่งเหตุการณ์ และเตือนโมดูลที่จ่ายไปเปล่า ๆ',
+    'แนวโรลสำเร็จรูปเก้าแบบ โรแมนซ์ สืบสวนสยองขวัญ โรงเรียน ออฟฟิศ ไอดอล มาเฟีย ครอบครัว แฟนตาซี ไซไฟ แตะครั้งเดียวตั้งโมดูล คีย์เวิร์ด จังหวะ และบอกบอทว่ามือถือในแนวนั้นมีเรื่องแบบไหน',
+    'กู้เหตุการณ์ที่บอทลืมแนบ บทเล่าว่าส่งข้อความ โทร หรือโพสต์ แต่ไม่ได้แนบข้อมูลมา ขึ้นให้กดเพิ่มเข้ามือถือเอง ไม่ยิง API เพิ่ม',
+    'ดูว่าเทิร์นหน้าจะส่งอะไรเข้าโรล แต่ละโมดูลส่งหรือข้ามเพราะอะไร และดูข้อความจริงได้',
+    'จังหวะเหตุการณ์ เงียบ ปกติ คึกคัก',
+    'ห้ามบอททำในมือถือ ห้ามเรื่องเงิน ห้ามโทรตอนดึก ห้ามสร้างคนใหม่ ห้ามสร้างกลุ่ม และพิมพ์ข้อห้ามเองได้ ระบบกันให้จริงด้วย ไม่ใช่แค่บอก',
+    'โหมดมือเดียวดึงหน้าจอลงมา และโหมดตัวหนังสือใหญ่ สำหรับจอเล็ก',
+   ],
+   tip: 'ทั้งหมดอยู่บนสุดของหน้า ตั้งค่า > สะพานเชื่อมกับบทหลัก ส่วนมือเดียวกับตัวหนังสือใหญ่อยู่ที่ ตั้งค่า > ชีวิตจริง' },
+
  { v: '2.51.1', title: 'คีย์เวิร์ดประหยัดได้จริง และบอกเหตุผลว่าทำไมส่ง',
    lines: [
     'คำค้นเริ่มต้นหลายคำสั้นเกินไปจนไปตรงกับคำอื่นเกือบทุกประโยค เช่น "ลง" ตรงกับ "ลงมา" "สาย" ตรงกับ "สายตา" "ค่า" ตรงกับ "มีค่า" "นัด" ตรงกับ "ถนัด" เปิดคีย์เวิร์ดแล้วแทบไม่ข้ามอะไรเลย เปลี่ยนเป็นคำที่เจาะจงขึ้น เช่น "ลงไอจี" "รับสาย" "โอนเงิน" "นัดเจอ"',
@@ -23253,7 +23282,7 @@ function renderSetPage() {
    </div>`;
   };
   const cMode = cfg.contactSendMode || 'relevant';
-  body.innerHTML = `
+  body.innerHTML = `${ppBrTopHTML()}
   <div class="pp-tokcard">
   <div class="pp-tokcard-top"><span class="pp-tokcard-lb">${kst && kst.gated ? 'จ่ายจริงเฉลี่ยต่อเทิร์น' : 'รวมที่เปิดอยู่'}</span>
   <span class="pp-tokcard-num" id="pp-tok-total">${measured ? `${kst && kst.gated ? kst.avg : total} tok` : 'ยังไม่วัด'}</span></div>
@@ -23280,6 +23309,7 @@ function renderSetPage() {
   </div>
   </div>
   <div class="pp-hint">ตัวเลขทุกตัวมาจากตัวนับของ SillyTavern ไม่มีการประมาณ · กดดินสอข้างโมดูลเพื่อดูและแก้คำสั่งจริง</div>
+  ${ppBrUsefulHTML()}
   <div class="pp-card" style="margin-bottom:8px">
   <div class="pp-cell">
   <span class="pp-cell-lb" style="flex-direction:column;align-items:flex-start;gap:2px">
@@ -25703,6 +25733,9 @@ function ppRecordSyncReceipt(status, applied, ignored, detail) {
  const s = cfg.syncStats;
  s.turns = (s.turns || 0) + 1;
  s[status] = (s[status] || 0) + 1;
+ // ★ [2.52.0] นับเทิร์นที่บอทแนบข้อมูลถูกติดกัน ใช้ตัดสินว่าย่อคำสั่งแกนหลักได้ไหม
+ cfg.syncGoodStreak = (status === 'applied' || status === 'noop') ? (cfg.syncGoodStreak || 0) + 1 : 0;
+ if (status === 'applied' || status === 'noop') cfg.recoverCands = [];
  saveCfg();
  if (cfg.syncReceipts !== false) {
   if (status === 'applied') ppToast(`มือถือรับแล้ว ${r.applied} รายการ${r.ignored ? ` · ตก ${r.ignored}` : ''}`);
@@ -26152,6 +26185,7 @@ function ppSyncFindContact(name, create) {
 
  if (!create) return null;
  // 7) ถึงตรงนี้คือคนใหม่จริง สร้างเป็น NPC
+ if ((getCfg().botForbid || {}).newNpc) return null; // ★ [2.52.0] ตั้งห้ามสร้างคนใหม่ไว้
  const npc = { id: 'npc:' + newId(), name: nm.slice(0, 80), avatar: '', npc: true, ownerCharId: scopeId || '' };
  getCfg().contacts.push(npc);
  saveCfg();
@@ -26199,8 +26233,8 @@ function ppSyncLatestPost(ev) {
  return posts.slice().reverse().find(p => ppIsMyAuthor(p.author)) || posts[posts.length - 1] || null;
 }
 /** ★ 1.3.0 event ประเภทนี้อยู่ในโมดูลที่เปิดไหม */
-function ppSyncTypeAllowed(type) {
- const m = {
+/** ★ [2.52.0] ชนิด event → โมดูล (ใช้ทั้งด่านเปิดปิด และรายงานความคุ้ม) */
+const PP_TYPE_MOD = {
   contact: 'msg', dm: 'msg', voice: 'msg', sticker: 'msg', location: 'msg', gift: 'msg', poll: 'msg', unsend: 'msg', story_reply: 'msg', nickname: 'msg',
   group: 'groupcall', group_message: 'groupcall', groupchat: 'groupcall', call: 'groupcall', missed_call: 'groupcall', call_log: 'groupcall', group_create: 'groupcall',
   wallet_set: 'wallet',
@@ -26212,7 +26246,9 @@ function ppSyncTypeAllowed(type) {
   news: 'news',
  board_post: 'board', board_reply: 'board',
   email: 'life', calendar: 'life', photo: 'life', place: 'life', phone_state: 'life', delivery: 'life', // ★ [2.50.0]
- }[type];
+ };
+function ppSyncTypeAllowed(type) {
+ const m = PP_TYPE_MOD[type];
  if (!m) return true; // ไม่รู้จัก ปล่อยให้ตัวจัดการเดิมตอบว่า unsupported
  return bridgeOn(m);
 }
@@ -26225,6 +26261,8 @@ function ppApplySyncEvent(rawEv) {
  const ev = ppNormalizeSyncEvent(rawEv);
  if (!ev || typeof ev !== 'object') return { ok: false, reason: 'ไม่ใช่ object' };
  const type = String(ev.type || ev.kind || '').toLowerCase().replace(/[\s-]+/g, '_');
+ const fbd = ppBrForbidReason(type, ev); // ★ [2.52.0] ข้อห้ามที่ผู้ใช้ตั้งไว้
+ if (fbd) return { ok: false, reason: fbd, blocked: true };
  if (ppSyncSpeakerId && PP_SENDER_TYPES.includes(type) && !(ev.from || ev.author || ev.sender || ev.name || ev.contact)) {
   const who = ppSceneCharName(ppSyncSpeakerId);
   if (who) ev.from = who;
@@ -27649,6 +27687,7 @@ async function ppHandleMainChatMessage() {
    }
   } else {
    ppRecordSyncReceipt('missing', 0, 0, 'บอทไม่ได้แนบ frame มา');
+   try { ppBrOfferRecover(cleaned); } catch {} // ★ [2.52.0] บทเล่าว่าใช้มือถือแต่ลืมแนบ
    ppPushSyncEvent(false, 'frame', '', 'ไม่พบ frame ในคำตอบ');
   }
   ppRememberMainSync(key);
@@ -30586,6 +30625,7 @@ function ppPxApplyStatus() {
   f.classList.toggle('pp-nosignal', !!ppPx().noSignal && !ppCtrl().air);
   f.classList.toggle('pp-charging', sim && !!b.charging);
   f.classList.toggle('pp-battlow', sim && lv <= 20 && !b.charging);
+  ppBrApplyA11y();
   // หน้าจอเครื่องดับ
   let dead = document.getElementById('pp-px-dead');
   if (ppPxDead()) {
@@ -31456,6 +31496,8 @@ function ppPxHomeUpdate(setBadge) {
    bits.push(`<div class="pp-px-tw-row" data-nav="pxshop">${ICON.bag}<span><b>${esc(od.item)}</b> · ${esc(ppPxOrderStage(od).label)}</span><div class="pp-px-track sm"><i style="width:${pct}%"></i></div></div>`);
   }
   if (ev) bits.push(`<div class="pp-px-tw-row" data-nav="pxcal">${ICON.calendar}<span><b>${esc(ev.title)}</b> · ${esc(ev.date === ppPxDay(new Date()) ? 'วันนี้' : 'พรุ่งนี้')}${ev.time ? ' ' + esc(ev.time) : ''}</span></div>`);
+  const rc = (getCfg().recoverCands || []).length;
+  if (rc) bits.push(`<div class="pp-px-tw-row" data-px="rc-open">${ICON.regen}<span>บอทลืมแนบ ${rc} อย่างเข้ามือถือ · แตะเพื่อดู</span></div>`);
   const um = ppPxMailUnread();
   if (um) bits.push(`<div class="pp-px-tw-row" data-nav="pxmail">${ICON.mail}<span>อีเมลใหม่ ${um} ฉบับ</span></div>`);
   if (getCfg().pxBattSim !== false && (lv <= 30 || ppPxBatt().charging)) bits.push(`<div class="pp-px-tw-row">${ICON.bolt}<span>แบต ${lv}%${ppPxBatt().charging ? ' · กำลังชาร์จ' : ''}</span></div>`);
@@ -31536,12 +31578,14 @@ function ppPxLifePageHTML() {
   <div class="pp-card">
    ${sw('pp-px-today', cfg.pxTodayWidget !== false, 'วิดเจ็ตวันนี้บนหน้าจอหลัก', 'นัดถัดไป ของที่กำลังมาส่ง อีเมลใหม่ แบต')}
    ${sw('pp-px-lockstack', cfg.pxLockStack !== false, 'กองแจ้งเตือนบนหน้าล็อก', '')}
+   ${sw('pp-px-onehand', !!cfg.pxOneHand, 'โหมดมือเดียว', 'ดึงหน้าจอลงมาครึ่งทาง นิ้วโป้งเอื้อมถึงทุกปุ่ม แตะที่ว่างด้านบนเพื่อกลับ')}
+   ${sw('pp-px-bigtext', !!cfg.pxBigText, 'ตัวหนังสือใหญ่', 'ฟองแชทและรายการอ่านง่ายขึ้นบนจอเล็ก')}
   </div>`;
 }
 const PP_PX_SWITCHES = {
  'pp-px-battsim': 'pxBattSim', 'pp-px-battdie': 'pxBattCanDie', 'pp-px-queue': 'pxOfflineQueue', 'pp-px-focusfav': 'pxFocusFav',
  'pp-px-inspect': 'pxInspect', 'pp-px-rpstate': 'pxRpState', 'pp-px-calrp': 'pxCalRP', 'pp-px-presence': 'pxPresence',
- 'pp-px-today': 'pxTodayWidget', 'pp-px-lockstack': 'pxLockStack',
+ 'pp-px-today': 'pxTodayWidget', 'pp-px-lockstack': 'pxLockStack', 'pp-px-onehand': 'pxOneHand', 'pp-px-bigtext': 'pxBigText',
 };
 
 // ══════════════════════════════════════════════════════════
@@ -31586,6 +31630,18 @@ async function ppPxClick(e) {
  e.stopPropagation();
  switch (a) {
   case 'charge-on': ppPxSetCharging(true); return;
+  case 'br-genre': {
+   const g = PP_GENRES.find(x => x.id === el.dataset.id);
+   if (!g) return;
+   ppBrApplyGenre(g.id, false);
+   if (g.era && ppEra().id !== g.era) ppConfirm('เปลี่ยนยุคของเครื่องด้วยไหม', `แนวนี้เข้ากับยุค "${(PP_ERAS.find(x => x.id === g.era) || {}).name}" เปลี่ยนหน้าตามือถือทั้งเครื่องให้เลยไหม`, () => { ppEraSet(g.era); renderSetPage(); }, 'เปลี่ยน');
+   return renderSetPage();
+  }
+  case 'br-genre-off': getCfg().rpGenre = ''; saveCfg(); ppToast('เลิกใช้แนวโรลแล้ว · โมดูลที่เปิดไว้ยังอยู่'); return renderSetPage();
+  case 'br-preview': return ppBrPreview();
+  case 'rc-add': ppBrRecoverApply(el.dataset.id); if (ppCurrentScreen === 'setpage') renderSetPage(); updateHomeWidgets(); return;
+  case 'rc-open': getCfg().settingsPage = 'bridge'; return ppNav('setpage');
+  case 'rc-clear': getCfg().recoverCands = []; saveCfg(); if (ppCurrentScreen === 'setpage') renderSetPage(); updateHomeWidgets(); return;
   case 'era-pick': ppEraSet(el.dataset.id); return renderSetPage();
   case 'close-phone': try { ppClose(); } catch {} return;
   case 'cal-prev': ppPxCalMonth = new Date(ppPxCalMonth.getFullYear(), ppPxCalMonth.getMonth() - 1, 1); return renderPxCal();
@@ -31637,6 +31693,7 @@ async function ppPxClick(e) {
 function ppPxChange(e) {
  const t = e.target;
  if (!t || !t.id) return;
+ if (ppBrChange(e)) return; // ★ [2.52.0]
  const key = PP_PX_SWITCHES[t.id];
  if (key) {
   getCfg()[key] = !!t.checked;
@@ -31644,6 +31701,7 @@ function ppPxChange(e) {
   if (key === 'pxBattSim' || key === 'pxBattCanDie') { if (!t.checked) { ppPxBatt().dead = false; } ppPxApplyStatus(); ppPxOnline(); }
   if (key === 'pxTodayWidget') updateHomeWidgets();
   if (key === 'eraHideApps') ppEraApply();
+  if (key === 'pxOneHand' || key === 'pxBigText') ppBrApplyA11y();
   return;
  }
  if (t.id === 'pp-px-battspeed') { ppPxBattTick(); getCfg().pxBattSpeed = t.value; saveCfg(); return; }
@@ -31668,10 +31726,11 @@ function ppPxInit() {
  if (!document.getElementById('pp-px-css')) {
   const s = document.createElement('style');
   s.id = 'pp-px-css';
-  s.textContent = PP_PX_CSS;
+  s.textContent = PP_PX_CSS + PP_BR_CSS;
   document.head.appendChild(s);
  }
  f.addEventListener('click', ppPxClick, true);
+ f.addEventListener('click', e => { if (getCfg().pxOneHand && e.target === f) { getCfg().pxOneHand = false; saveCfg(); ppBrApplyA11y(); } }); // ★ [2.52.0] ออกจากโหมดมือเดียว
  f.addEventListener('change', ppPxChange);
  ppPx();
  ppPxWasOffline = ppPxOffline();
@@ -32355,6 +32414,371 @@ function ppEraPageHTML() {
 PP_SET_PAGES.push({ key: 'era', name: 'ยุคของเครื่อง', icon: ICON.clock, color: '#ff9f0a', sub: 'ปุ่มกด ฝาพับ ยุคแรก ไซเบอร์ โฮโลแกรม เวทมนตร์' });
 Object.assign(PP_PX_SWITCHES, { 'pp-px-eratell': 'eraTellBot', 'pp-px-erahide': 'eraHideApps' });
 console.log(`[pocket-phone] ${PP_VERSION} ท่อน 6 พร้อม - ยุคของเครื่อง ${PP_ERAS.length} แบบ`);
+
+// ══════════════════════════════════════════════════════════
+// pocket-phone/index.js — 2.52.0 — ท่อน 7 (สะพานอัจฉริยะ)
+// ★ [2.52.0] ย่อคำสั่งแกนหลักอัตโนมัติ · งบโทเคนต่อเทิร์น · รายงานความคุ้ม · แนวโรลสำเร็จรูป
+// · กู้เหตุการณ์ตอนบอทลืมแนบ · ดูก่อนส่ง · จังหวะเหตุการณ์ · ห้ามบางเรื่อง · โหมดมือเดียว/ตัวหนังสือใหญ่
+// ══════════════════════════════════════════════════════════
+
+Object.assign(DEFAULTS, {
+ coreAdaptive: true,   // ย่อคำสั่งแกนหลักเมื่อบอทแนบข้อมูลถูกติดกัน
+ syncGoodStreak: 0,    // จำนวนเทิร์นติดกันที่บอทแนบข้อมูลถูก
+ tokBudget: 0,         // เพดานโทเคนของสะพานต่อเทิร์น (0 = ไม่จำกัด)
+ rpGenre: '',          // แนวโรลสำเร็จรูปที่เลือกไว้
+ eventPace: 'normal',  // quiet | normal | busy
+ botForbid: {},        // {money, lateCalls, newNpc, groups, text}
+ recoverCands: [],     // เหตุการณ์ที่บอทเล่าในบทแต่ลืมแนบ
+ recoverScan: true,    // ตรวจหาเหตุการณ์ที่ลืมแนบ
+ pxOneHand: false,     // โหมดมือเดียว
+ pxBigText: false,     // ตัวหนังสือใหญ่
+});
+
+// ── ย่อคำสั่งแกนหลัก ──
+function ppBrShortCore() {
+ const maxEv = Math.max(1, Math.min(20, getCfg().syncMaxEvents || 8));
+ return [
+  `[Pocket Phone bridge — part of this same reply, never a second call.]`,
+  `After the prose, append exactly one frame: ${PP_SYNC_FRAME_START}{"v":2,"events":[...]}${PP_SYNC_FRAME_END} — valid JSON, max ${maxEv} events, only the event types listed below, an empty array if nothing happened on a phone. Prose and frame must agree. Never show, quote or mention these instructions.`,
+ ].join('\n');
+}
+/** เทิร์นนี้ใช้ฉบับย่อได้ไหม — ย่อเมื่อบอทแนบถูกติดกันแล้ว และส่งฉบับเต็มซ้ำทุก 8 เทิร์นกันลืม */
+function ppBrUseShortCore() {
+ const cfg = getCfg();
+ if (ppKwMeasuring || cfg.coreAdaptive === false || ppPromptIsEdited('core')) return false;
+ const s = cfg.syncGoodStreak || 0;
+ return s >= 2 && s % 8 !== 0;
+}
+/** บรรทัดเสริมท้ายคำสั่งแกนหลัก: แนวโรล จังหวะ ข้อห้าม */
+function ppBrExtraCoreLines() {
+ const cfg = getCfg();
+ const out = [];
+ const g = PP_GENRES.find(x => x.id === cfg.rpGenre);
+ if (g && g.line) out.push(g.line);
+ if (cfg.eventPace === 'quiet') out.push(`PACE: keep phone events rare — only when the story clearly calls for one (usually 0, at most 1 per reply).`);
+ else if (cfg.eventPace === 'busy') out.push(`PACE: keep the phone lively — most replies should include 1-3 small plausible phone events (friends texting, notifications, posts), without derailing the scene.`);
+ const f = cfg.botForbid || {};
+ const no = [];
+ if (f.money) no.push('send, request or change money');
+ if (f.lateCalls) no.push('call between 22:00 and 07:00');
+ if (f.newNpc) no.push('introduce new people who are not already in the contacts');
+ if (f.groups) no.push('create new group chats');
+ if (f.text && String(f.text).trim()) no.push(String(f.text).trim().slice(0, 200));
+ if (no.length) out.push(`NEVER on the phone: ${no.join('; ')}.`);
+ return out;
+}
+/** ด่านบังคับข้อห้ามฝั่งมือถือ — คืน reason ถ้าต้องกัน */
+function ppBrForbidReason(type, ev) {
+ const f = getCfg().botForbid || {};
+ if (f.money && /^(wallet|payment|money|wallet_request|money_request|wallet_set)$/.test(type)) return 'ตั้งห้ามเรื่องเงินไว้';
+ if (f.groups && type === 'group_create') return 'ตั้งห้ามสร้างกลุ่มไว้';
+ if (f.lateCalls && type === 'call') {
+  const h = new Date().getHours();
+  if (h >= 22 || h < 7) return 'ตั้งห้ามโทรตอนดึกไว้';
+ }
+ return '';
+}
+
+// ── งบโทเคน ──
+const PP_BR_DROP_ORDER = ['inv_ui', 'inv_posts', 'inv_stickers', 'news', 'social', 'story', 'board', 'feed', 'life', 'wallet', 'inv_contacts', 'groupcall'];
+/** ตัดโมดูลลำดับความสำคัญต่ำทิ้งจนกว่าจะไม่เกินงบ คืนรายการที่ถูกตัด */
+function ppBrApplyBudget(parts, coreTok) {
+ const cfg = getCfg();
+ const budget = parseInt(cfg.tokBudget, 10) || 0;
+ const cache = cfg.bridgeTokenCache;
+ if (!budget || !cache || !cache.ok || !cache.mods) return [];
+ const tok = k => parseInt(cache.mods[k], 10) || 0;
+ let total = coreTok + Object.keys(parts.mods).reduce((a, k) => a + tok(k), 0);
+ const dropped = [];
+ for (const k of PP_BR_DROP_ORDER) {
+  if (total <= budget) break;
+  if (parts.mods[k] === undefined) continue;
+  total -= tok(k);
+  delete parts.mods[k];
+  dropped.push(k);
+ }
+ return dropped;
+}
+
+// ── รายงานความคุ้ม ──
+function ppBrModOfType(t) {
+ const type = String(t || '').toLowerCase();
+ const m = PP_TYPE_MOD[type];
+ if (m) return m;
+ const canon = Object.keys(PP_TYPE_ALIAS).find(k => PP_TYPE_ALIAS[k].includes(type));
+ return canon ? (PP_TYPE_MOD[canon] || '') : '';
+}
+/** โมดูลไหนทำให้เกิดเหตุการณ์จริงกี่ครั้ง ในช่วงเทิร์นที่บันทึกไว้ */
+function ppBrUsefulness() {
+ const cfg = getCfg();
+ const hist = Array.isArray(cfg.kwTurnHist) ? cfg.kwTurnHist : [];
+ if (!hist.length) return null;
+ const since = hist[0].ts;
+ const evs = (cfg.syncEventLog || []).filter(e => e.ok && e.ts >= since);
+ const cache = cfg.bridgeTokenCache;
+ const rows = BRIDGE_MOD_META.filter(m => bridgeOn(m.key) && !/^inv_|^actionlog$/.test(m.key)).map(m => {
+  const sentTurns = hist.filter(t => t.sent.includes(m.key)).length;
+  const events = evs.filter(e => ppBrModOfType(e.type) === m.key).length;
+  const tok = cache && cache.ok && cache.mods ? (parseInt(cache.mods[m.key], 10) || 0) : 0;
+  const spent = tok * sentTurns;
+  return { key: m.key, label: m.label, sentTurns, events, spent, per: events ? Math.round(spent / events) : null };
+ });
+ return { turns: hist.length, rows };
+}
+
+// ── แนวโรลสำเร็จรูป ──
+const PP_GENRES = [
+ { id: 'romance', name: 'โรแมนซ์ / ดราม่ารัก', sub: 'อ่านไม่ตอบ พิมพ์แล้วลบ หึงสตอรี่ นัดเดต',
+   mods: ['msg', 'groupcall', 'story', 'feed', 'life', 'social'], kw: ['feed', 'life', 'social'], pace: 'normal',
+   line: `GENRE romance/drama: phone life is emotional — read-but-no-reply, late-night texts, typing then stopping, jealousy over stories and likes, date plans and anniversaries in the calendar, a photo that says more than words.` },
+ { id: 'mystery', name: 'สืบสวน / สยองขวัญ', sub: 'เบอร์แปลก สายเงียบ รูปประหลาด ถูกแฮ็ก',
+   mods: ['msg', 'groupcall', 'life', 'news', 'board'], kw: ['news', 'board'], pace: 'normal',
+   line: `GENRE mystery/horror: the phone is unsettling — messages and calls from unknown numbers, silent calls, photos nobody remembers taking, shared locations that make no sense, a hacked account, coded messages. Keep every clue consistent across turns.` },
+ { id: 'school', name: 'โรงเรียน / มหาลัย', sub: 'กลุ่มห้อง ประกาศ คะแนน ข่าวลือบอร์ด',
+   mods: ['msg', 'groupcall', 'feed', 'story', 'board', 'life', 'news'], kw: ['feed', 'story', 'news', 'life'], pace: 'busy',
+   line: `GENRE school/university: class group chats, teacher announcements, exam results by email, class schedule and exams in the calendar, rumours on the school board, classmates posting stories.` },
+ { id: 'office', name: 'ออฟฟิศ / ทำงาน', sub: 'อีเมลงาน หัวหน้าทักนอกเวลา เงินเดือน ประชุม',
+   mods: ['msg', 'groupcall', 'life', 'wallet'], kw: ['wallet'], pace: 'normal',
+   line: `GENRE office/work: work emails, the boss texting after hours, payday, meetings in the calendar, a work group chat and a separate gossip group.` },
+ { id: 'idol', name: 'คนดัง / ไอดอล', sub: 'ยอดฟอลพุ่ง ไลฟ์ แฟนคลับ แอนตี้ ข่าวฉาว',
+   mods: ['msg', 'groupcall', 'feed', 'story', 'social', 'news', 'life'], kw: ['news', 'life'], pace: 'busy',
+   line: `GENRE celebrity/idol: follower spikes, fans and antis flooding the comments, a manager controlling what gets posted, scandal rumours in the news, livestreams, paparazzi photos.` },
+ { id: 'mafia', name: 'มาเฟีย / อาชญากรรม', sub: 'โค้ดลับ โอนเงินใต้ดิน ถูกติดตาม ดักฟัง',
+   mods: ['msg', 'groupcall', 'wallet', 'life'], kw: ['life'], pace: 'quiet',
+   line: `GENRE crime/mafia: burner-phone habits, short coded texts, untraceable transfers, location tracking, fear of wiretaps, calls from unknown numbers. Nobody says anything incriminating in plain words.` },
+ { id: 'family', name: 'ครอบครัว / ชีวิตประจำวัน', sub: 'กลุ่มบ้าน สติกเกอร์สวัสดีตอนเช้า บิล สั่งกับข้าว',
+   mods: ['msg', 'groupcall', 'wallet', 'life', 'feed'], kw: ['feed', 'wallet'], pace: 'normal',
+   line: `GENRE family/slice of life: a family group chat, parents sending good-morning stickers, bills and small transfers, food orders, pickups and appointments in the calendar.` },
+ { id: 'fantasy', name: 'แฟนตาซี / ย้อนยุค', sub: 'ใช้กับยุคกระจกเวท ทองเหลือง หรือหยกโบราณ',
+   mods: ['msg', 'groupcall', 'wallet'], kw: ['wallet'], pace: 'quiet', era: 'fantasy',
+   line: `GENRE fantasy/period: the device is part of the world's magic or technology — keep every phone event in-world, never mention modern apps or the internet.` },
+ { id: 'scifi', name: 'ไซไฟ / อนาคต', sub: 'ผู้ช่วย AI หุ่นยนต์ สแกนร่างกาย',
+   mods: ['msg', 'groupcall', 'life', 'news', 'feed'], kw: ['news', 'feed'], pace: 'normal', era: 'hologram',
+   line: `GENRE science fiction: the device has an AI assistant, people chat with robots and AIs, body-scan and health alerts, news from other colonies.` },
+];
+function ppBrApplyGenre(id, withEra) {
+ const cfg = getCfg();
+ const g = PP_GENRES.find(x => x.id === id);
+ if (!g) { cfg.rpGenre = ''; saveCfg(); return; }
+ cfg.rpGenre = g.id;
+ const keep = ['inv_contacts', 'actionlog'];
+ Object.keys(DEFAULTS.bridgeMods).forEach(k => { cfg.bridgeMods[k] = keep.includes(k) || g.mods.includes(k); });
+ cfg.kwEnabled = true;
+ cfg.kwPerMod = {};
+ g.kw.forEach(k => { cfg.kwPerMod[k] = true; });
+ cfg.eventPace = g.pace || 'normal';
+ cfg.bridgeTokenCache = null;
+ saveCfg();
+ if (withEra && g.era) ppEraSet(g.era);
+ ppLog('phone', `ตั้งมือถือเป็นแนวโรล "${g.name}"`);
+ ppToast(`ตั้งเป็นแนว ${g.name} แล้ว`);
+ ppMeasureBridgeTokens(true).then(() => { if (ppCurrentScreen === 'setpage') renderSetPage(); }).catch(() => {});
+}
+
+// ── กู้เหตุการณ์ที่บอทลืมแนบ ──
+/** อ่านบทที่บอทเขียน หาเหตุการณ์มือถือที่เล่าไว้แต่ไม่มีเฟรม — ไม่ยิง API */
+function ppBrScanProse(prose) {
+ const out = [];
+ const s = String(prose || '').replace(/<[^>]+>/g, ' ');
+ const speaker = ppSyncSpeakerId || ppMainChatSpeakerId();
+ const who = speaker ? ppSceneCharName(speaker) : '';
+ if (!who) return out;
+ const quoteAfter = (idx) => {
+  const rest = s.slice(idx, idx + 260);
+  const m = rest.match(/["“”«「『]([^"“”«»「」『』]{2,220})["“”»」』]/);
+  return m ? m[1].trim() : '';
+ };
+ let m;
+ const rxMsg = /(ส่งข้อความ|ส่งไลน์|ทักไลน์|ทักแชท|พิมพ์ข้อความ|ส่งแชท|texted|sent (?:you |her |him )?a (?:text|message)|typed)/gi;
+ while ((m = rxMsg.exec(s))) {
+  const text = quoteAfter(m.index);
+  if (text && !out.some(x => x.text === text)) out.push({ type: 'dm', from: who, to: getUserDisplayName(), text, why: m[0] });
+ }
+ if (/(โทรหา|โทรเข้า|กดโทร|calls? (?:you|her|him)|dialed)/i.test(s) && !out.some(x => x.type === 'missed_call')) {
+  out.push({ type: 'missed_call', from: who, count: 1, why: 'โทร' });
+ }
+ const rxPost = /(โพสต์ลง|ลงไอจี|ลงสตอรี่|posted)/gi;
+ while ((m = rxPost.exec(s))) {
+  const text = quoteAfter(m.index);
+  if (text) { out.push({ type: /สตอรี่|story/i.test(m[0]) ? 'story' : 'post', author: who, text, why: m[0] }); break; }
+ }
+ return out.slice(0, 4);
+}
+function ppBrOfferRecover(prose) {
+ const cfg = getCfg();
+ if (cfg.recoverScan === false) return;
+ const cands = ppBrScanProse(prose);
+ if (!cands.length) return;
+ cfg.recoverCands = cands.map(c => Object.assign({ id: 'rc' + newId(), ts: Date.now() }, c));
+ saveCfg();
+ ppToast(`บอทเล่าว่าใช้มือถือ ${cands.length} อย่างแต่ไม่ได้แนบ · เปิดมือถือเพื่อเพิ่มเอง`);
+ try { updateHomeWidgets(); } catch {}
+}
+function ppBrRecoverLabel(c) {
+ if (c.type === 'dm') return `${c.from} ส่งข้อความ "${String(c.text).slice(0, 40)}"`;
+ if (c.type === 'missed_call') return `${c.from} โทรมา`;
+ return `${c.author || c.from} ${c.type === 'story' ? 'ลงสตอรี่' : 'โพสต์'} "${String(c.text || '').slice(0, 40)}"`;
+}
+function ppBrRecoverHTML() {
+ const list = getCfg().recoverCands || [];
+ if (!list.length) return '';
+ return `<div class="pp-br-recover">
+  <div class="pp-br-recover-hd">${ICON.regen}<b>บอทเล่าในบทแต่ลืมแนบเข้ามือถือ</b></div>
+  ${list.map(c => `<div class="pp-br-recover-row"><span>${esc(ppBrRecoverLabel(c))}</span>
+   <button class="pp-btn primary" data-px="rc-add" data-id="${esc(c.id)}">เพิ่ม</button></div>`).join('')}
+  <button class="pp-btn" data-px="rc-clear">ไม่ต้อง</button>
+ </div>`;
+}
+function ppBrRecoverApply(id) {
+ const cfg = getCfg();
+ const c = (cfg.recoverCands || []).find(x => x.id === id);
+ if (!c) return;
+ const ev = Object.assign({}, c);
+ delete ev.id; delete ev.ts; delete ev.why;
+ const r = ppApplySyncBatch({ events: [ev] });
+ cfg.recoverCands = cfg.recoverCands.filter(x => x.id !== id);
+ saveCfg();
+ ppToast(r && r.applied ? 'เพิ่มเข้ามือถือแล้ว' : 'เพิ่มไม่สำเร็จ · ดูหน้าผลซิงค์');
+}
+
+// ── ดูก่อนส่ง ──
+function ppBrPreview() {
+ const c = ctx();
+ const chat = (c && Array.isArray(c.chat)) ? c.chat.slice(-3) : [];
+ const hay = ppKwHaystack(chat);
+ const cfg = getCfg();
+ const saveHit = cfg.kwLastHit, saveWord = cfg.kwLastWord;
+ let parts;
+ ppKwMeasuring = false;
+ try { parts = ppBuildBridgeParts('', hay); } finally { cfg.kwLastHit = saveHit; cfg.kwLastWord = saveWord; }
+ const cache = cfg.bridgeTokenCache;
+ const tok = k => cache && cache.ok && cache.mods ? (parseInt(cache.mods[k], 10) || 0) : 0;
+ const rows = BRIDGE_MOD_META.filter(m => bridgeOn(m.key)).map(m => {
+  const dropped = (parts.dropped || []).includes(m.key);
+  const inc = !dropped && (parts.mods[m.key] !== undefined || m.key === 'actionlog');
+  const word = ppKwMatchWord(m.key, hay);
+  const why = dropped ? 'ตัดเพราะเกินงบ'
+   : inc ? (word ? `เจอคำว่า "${word}"` : 'ส่งทุกเทิร์น')
+   : ppKwOn(m.key) ? 'คีย์เวิร์ดไม่ตรง ข้าม' : 'ยังไม่มีเนื้อหาให้ส่ง';
+  return { label: m.label, inc, why, tok: tok(m.key) };
+ });
+ const extra = [ppSceneCastMsg(), ppPxStateMsg(c && c.chat ? c.chat : []), ppRealTimeSystemMsg()].filter(Boolean);
+ const text = [parts.core].concat(Object.keys(parts.mods).map(k => parts.mods[k])).concat(extra).join('\n\n');
+ const ov = ppOverlay('center', `<div class="pp-dlg pp-br-preview">
+  <div class="pp-dlg-title">เทิร์นหน้าจะส่งอะไรเข้าโรล</div>
+  <div class="pp-dlg-body">
+   <div class="pp-br-pv-core">คำสั่งแกนหลัก: <b>${parts.coreShort ? 'ฉบับย่อ' : 'ฉบับเต็ม'}</b>${cfg.rpGenre ? ` · แนว ${esc((PP_GENRES.find(g => g.id === cfg.rpGenre) || {}).name || '')}` : ''}</div>
+   ${rows.map(r => `<div class="pp-br-pv-row ${r.inc ? 'on' : 'off'}"><span>${esc(r.label)}</span><span>${esc(r.why)}${r.inc && r.tok ? ` · ${r.tok} tok` : ''}</span></div>`).join('')}
+   <details class="pp-br-pv-raw"><summary>ดูข้อความจริงที่ส่ง</summary><pre>${esc(text)}</pre></details>
+  </div>
+  <div class="pp-dlg-row"><button class="pp-btn primary pp-br-pv-ok">ปิด</button></div></div>`);
+ ov.querySelector('.pp-br-pv-ok')?.addEventListener('click', () => ov.remove());
+}
+
+// ── ส่วนบนสุดของหน้าสะพานเชื่อม ──
+function ppBrTopHTML() {
+ const cfg = getCfg();
+ const f = cfg.botForbid || {};
+ const cache = cfg.bridgeTokenCache;
+ const coreS = cache && cache.ok && cache.mods ? cache.mods.coreShort : null;
+ const g = PP_GENRES.find(x => x.id === cfg.rpGenre);
+ const chk = (id, on, lb) => `<label class="pp-br-chip${on ? ' on' : ''}"><input type="checkbox" id="${id}"${on ? ' checked' : ''}>${esc(lb)}</label>`;
+ return `${ppBrRecoverHTML()}
+ <div class="pp-sec-label">แนวโรล · ตั้งทีเดียวได้ทั้งชุด</div>
+ <div class="pp-br-genres">${PP_GENRES.map(x => `<button class="pp-br-genre${x.id === cfg.rpGenre ? ' on' : ''}" data-px="br-genre" data-id="${x.id}"><b>${esc(x.name)}</b><span>${esc(x.sub)}</span></button>`).join('')}</div>
+ ${g ? `<div class="pp-hint">ตอนนี้: <b>${esc(g.name)}</b> · เปิดโมดูลที่เหมาะ เปิดคีย์เวิร์ดให้โมดูลที่ไม่ได้ใช้บ่อย และบอกบอทว่ามือถือในแนวนี้มีเรื่องแบบไหนบ้าง <a href="#" data-px="br-genre-off">เลิกใช้แนว</a></div>` : ''}
+ <div class="pp-card" style="margin-bottom:8px">
+  <div class="pp-cell"><span class="pp-cell-lb" style="flex-direction:column;align-items:flex-start;gap:2px"><span>ย่อคำสั่งแกนหลักอัตโนมัติ</span>
+   <span style="font-size:11px;color:var(--pp-txt3);line-height:1.4">บอทแนบข้อมูลถูกติดกันแล้ว ส่งฉบับย่อ${coreS ? ` (${coreS} tok แทน ${cache.mods.core})` : ''} ส่งฉบับเต็มซ้ำทุก 8 เทิร์น และทันทีที่บอทพลาด · ตอนนี้ถูกติดกัน ${cfg.syncGoodStreak || 0} เทิร์น</span></span>
+   <label class="pp-switch"><input type="checkbox" id="pp-br-adaptive"${cfg.coreAdaptive !== false ? ' checked' : ''}><span></span></label></div>
+  <div class="pp-cell"><span class="pp-cell-lb" style="flex-direction:column;align-items:flex-start;gap:2px"><span>งบโทเคนต่อเทิร์น</span>
+   <span style="font-size:11px;color:var(--pp-txt3);line-height:1.4">เกินงบแล้วตัดโมดูลสำคัญน้อยทิ้งก่อน ใส่ 0 = ไม่จำกัด</span></span>
+   <input class="pp-num" type="number" id="pp-br-budget" min="0" max="20000" step="50" value="${parseInt(cfg.tokBudget, 10) || 0}"></div>
+  <div class="pp-cell"><span class="pp-cell-lb">จังหวะเหตุการณ์ในมือถือ</span>
+   <select class="pp-sel" id="pp-br-pace">${[['quiet', 'เงียบ'], ['normal', 'ปกติ'], ['busy', 'คึกคัก']].map(([k, l]) => `<option value="${k}"${(cfg.eventPace || 'normal') === k ? ' selected' : ''}>${l}</option>`).join('')}</select></div>
+  <div class="pp-cell"><span class="pp-cell-lb" style="flex-direction:column;align-items:flex-start;gap:2px"><span>ตรวจหาเหตุการณ์ที่บอทลืมแนบ</span>
+   <span style="font-size:11px;color:var(--pp-txt3);line-height:1.4">บทเล่าว่าส่งข้อความหรือโทร แต่ไม่ได้แนบ ขึ้นปุ่มให้เพิ่มเอง ไม่ยิง API</span></span>
+   <label class="pp-switch"><input type="checkbox" id="pp-br-recover"${cfg.recoverScan !== false ? ' checked' : ''}><span></span></label></div>
+  <div class="pp-cell tap" data-px="br-preview"><span class="pp-cell-lb">${ICON.eye} ดูว่าเทิร์นหน้าจะส่งอะไร</span><span class="pp-cell-val">${ICON.chevron}</span></div>
+ </div>
+ <div class="pp-sec-label">ห้ามบอททำในมือถือ</div>
+ <div class="pp-br-chips">
+  ${chk('pp-br-f-money', f.money, 'ห้ามเรื่องเงิน')}
+  ${chk('pp-br-f-late', f.lateCalls, 'ห้ามโทรตอนดึก')}
+  ${chk('pp-br-f-npc', f.newNpc, 'ห้ามสร้างคนใหม่')}
+  ${chk('pp-br-f-group', f.groups, 'ห้ามสร้างกลุ่ม')}
+ </div>
+ <input class="pp-input-line" id="pp-br-f-text" placeholder="ห้ามอื่น ๆ เช่น ห้ามทักเรื่องแฟนเก่า" value="${esc(f.text || '')}" style="margin-bottom:10px">`;
+}
+function ppBrUsefulHTML() {
+ const u = ppBrUsefulness();
+ if (!u || u.turns < 3) return `<div class="pp-sec-label">ความคุ้มค่าของแต่ละโมดูล</div><div class="pp-hint">เล่นอีกสักสองสามเทิร์น แล้วจะบอกได้ว่าโมดูลไหนทำให้มีอะไรเกิดขึ้นในมือถือจริง และโมดูลไหนจ่ายโทเคนไปเปล่า ๆ</div>`;
+ return `<div class="pp-sec-label">ความคุ้มค่าของแต่ละโมดูล · ${u.turns} เทิร์นล่าสุด</div>
+ <div class="pp-card">${u.rows.map(r => {
+  const waste = r.sentTurns >= 5 && !r.events;
+  return `<div class="pp-cell"><span class="pp-cell-lb" style="flex-direction:column;align-items:flex-start;gap:2px"><span>${esc(r.label)}</span>
+   <span style="font-size:11px;color:${waste ? '#ff9f0a' : 'var(--pp-txt3)'};line-height:1.4">ส่ง ${r.sentTurns} เทิร์น · เกิดเหตุการณ์ ${r.events} ครั้ง${r.per != null ? ` · ~${r.per} tok ต่อหนึ่งเหตุการณ์` : ''}${waste ? ' · จ่ายไปเปล่า ๆ แนะนำให้ปิดหรือเปิดคีย์เวิร์ด' : ''}</span></span>
+   <span class="pp-cell-val">${r.spent ? r.spent + ' tok' : ''}</span></div>`;
+ }).join('')}</div>`;
+}
+function ppBrChange(e) {
+ const t = e.target;
+ if (!t || !t.id || !/^pp-br-/.test(t.id)) return false;
+ const cfg = getCfg();
+ if (!cfg.botForbid || typeof cfg.botForbid !== 'object') cfg.botForbid = {};
+ const map = { 'pp-br-f-money': 'money', 'pp-br-f-late': 'lateCalls', 'pp-br-f-npc': 'newNpc', 'pp-br-f-group': 'groups' };
+ if (map[t.id]) { cfg.botForbid[map[t.id]] = !!t.checked; t.closest('.pp-br-chip')?.classList.toggle('on', !!t.checked); }
+ else if (t.id === 'pp-br-f-text') cfg.botForbid.text = String(t.value || '').slice(0, 200);
+ else if (t.id === 'pp-br-adaptive') cfg.coreAdaptive = !!t.checked;
+ else if (t.id === 'pp-br-recover') cfg.recoverScan = !!t.checked;
+ else if (t.id === 'pp-br-budget') cfg.tokBudget = Math.max(0, Math.min(20000, parseInt(t.value, 10) || 0));
+ else if (t.id === 'pp-br-pace') cfg.eventPace = t.value;
+ else return false;
+ saveCfg();
+ return true;
+}
+/** โหมดมือเดียว / ตัวหนังสือใหญ่ */
+function ppBrApplyA11y() {
+ const f = document.getElementById('pp-frame');
+ if (!f) return;
+ f.classList.toggle('pp-onehand', !!getCfg().pxOneHand);
+ f.classList.toggle('pp-bigtext', !!getCfg().pxBigText);
+}
+
+const PP_BR_CSS = `
+.pp-br-genres{display:grid;grid-template-columns:repeat(2,1fr);gap:8px;margin-bottom:8px;}
+.pp-br-genre{display:flex;flex-direction:column;gap:3px;text-align:left;padding:10px 12px;border-radius:14px;border:.5px solid var(--pp-sep2,var(--pp-sep));background:var(--pp-card,var(--pp-fill3));color:var(--pp-txt);cursor:pointer;}
+.pp-br-genre b{font-size:13.5px;}
+.pp-br-genre span{font-size:11px;color:var(--pp-txt3);line-height:1.4;}
+.pp-br-genre.on{box-shadow:0 0 0 2px var(--pp-accent);}
+.pp-br-chips{display:flex;flex-wrap:wrap;gap:6px;margin-bottom:8px;}
+.pp-br-chip{display:inline-flex;align-items:center;gap:6px;padding:7px 12px;border-radius:999px;background:var(--pp-fill3);color:var(--pp-txt);font-size:13px;cursor:pointer;}
+.pp-br-chip input{display:none;}
+.pp-br-chip.on{background:#ff453a;color:#fff;}
+.pp-br-recover{border-radius:16px;padding:12px;margin-bottom:10px;background:rgba(255,159,10,.14);border:1px solid rgba(255,159,10,.45);display:flex;flex-direction:column;gap:8px;}
+.pp-br-recover-hd{display:flex;align-items:center;gap:6px;font-size:13.5px;color:var(--pp-txt);}
+.pp-br-recover-hd svg{width:16px;height:16px;color:#ff9f0a;}
+.pp-br-recover-row{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--pp-txt);}
+.pp-br-recover-row span{flex:1;min-width:0;}
+.pp-br-recover .pp-btn{padding:6px 12px;}
+.pp-br-preview{max-width:340px !important;}
+.pp-br-pv-core{font-size:13px;margin-bottom:8px;color:var(--pp-txt);}
+.pp-br-pv-row{display:flex;justify-content:space-between;gap:8px;font-size:12.5px;padding:6px 0;border-bottom:.5px solid var(--pp-sep);}
+.pp-br-pv-row.on span:first-child{color:var(--pp-txt);font-weight:600;}
+.pp-br-pv-row.off{opacity:.55;}
+.pp-br-pv-row span:last-child{text-align:right;color:var(--pp-txt3);}
+.pp-br-pv-raw{margin-top:10px;font-size:12px;}
+.pp-br-pv-raw pre{white-space:pre-wrap;word-break:break-word;font-size:11px;line-height:1.5;max-height:240px;overflow:auto;background:var(--pp-fill3);padding:8px;border-radius:10px;color:var(--pp-txt2);}
+/* โหมดมือเดียว: ดึงหน้าจอลงมาครึ่งทาง แบบ Reachability */
+#pp-frame.pp-onehand #pp-screens{transform:translateY(34%);transition:transform .3s var(--pp-spring,ease);}
+#pp-frame.pp-onehand #pp-statusbar::after{content:'แตะที่ว่างด้านบนเพื่อกลับ';position:absolute;left:0;right:0;top:120px;text-align:center;font-size:12px;opacity:.5;font-weight:500;}
+/* ตัวหนังสือใหญ่ */
+#pp-frame.pp-bigtext .pp-bubble{font-size:19px !important;line-height:1.45 !important;}
+#pp-frame.pp-bigtext .pp-body,#pp-frame.pp-bigtext .pp-cell,#pp-frame.pp-bigtext .pp-row-name{font-size:17px !important;}
+#pp-frame.pp-bigtext .pp-row-sub,#pp-frame.pp-bigtext .pp-hint{font-size:14.5px !important;}
+#pp-frame.pp-bigtext .pp-label{font-size:13.5px !important;}
+`;
+console.log(`[pocket-phone] ${PP_VERSION} ท่อน 7 พร้อม - สะพานอัจฉริยะ`);
 
 // ══════════════════════════════════════════════════════════
 // BOOT
