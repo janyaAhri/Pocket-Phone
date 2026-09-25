@@ -1,5 +1,5 @@
 {
-    "display_name": "Pocket Phone Test",
+    "display_name": "Pocket Phone",
     "loading_order": 100,
     "js": "index.js",
     "css": "style.css",
